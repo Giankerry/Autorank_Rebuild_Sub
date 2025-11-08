@@ -22,6 +22,10 @@ use Illuminate\Support\Str;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use App\Filament\Instructor\Widgets\BaseKRAWidget;
 use App\Tables\Columns\ScoreColumn;
+use Filament\Forms\Components\Actions;
+use Filament\Forms\Components\Actions\Action;
+use Filament\Forms\Components\Grid;
+use Illuminate\Support\Facades\Log;
 
 class AwardsRecognitionWidget extends BaseKRAWidget
 {
@@ -54,6 +58,8 @@ class AwardsRecognitionWidget extends BaseKRAWidget
                     ->badge(),
                 Tables\Columns\TextColumn::make('data.awarding_body')->label('Award-Giving Body'),
                 Tables\Columns\TextColumn::make('data.date_given')->label('Date Given')->date(),
+                // Display the venue in the table
+                Tables\Columns\TextColumn::make('data.venue')->label('Venue of Ceremony'),
                 ScoreColumn::make('score'),
             ])
             ->headerActions([
@@ -100,7 +106,8 @@ class AwardsRecognitionWidget extends BaseKRAWidget
                 ->label('Name of the Award')
                 ->required()
                 ->maxLength(255)
-                ->columnSpanFull(),
+                ->columnSpanFull()
+                ->live(),
 
             Select::make('data.scope')
                 ->label('Scope of the Award')
@@ -115,74 +122,95 @@ class AwardsRecognitionWidget extends BaseKRAWidget
             TextInput::make('data.awarding_body')
                 ->label('Award-Giving Body/Organization')
                 ->required()
-                ->maxLength(255),
+                ->maxLength(255)
+                ->live(),
 
             DatePicker::make('data.date_given')
                 ->label('Date the Award was Given')
                 ->native(false)
                 ->displayFormat('m/d/Y')
                 ->required()
-                ->maxDate(now()),
+                ->maxDate(now())
+                ->live(),
 
             TextInput::make('data.venue')
                 ->label('Venue of the Award Ceremony')
                 ->required()
-                ->maxLength(255),
+                ->maxLength(255)
+                ->live(),
 
-            //Autofill via Document AI Integration
-            FileUpload::make('google_drive_file_id')
-                ->label('Proof Document(s) (e.g., Certificate, Plaque Photo)')
-                ->multiple()
-                ->reorderable()
-                ->required()
-                ->disk('private')
-                ->directory('proof-documents/kra4-awards')
-                ->acceptedFileTypes(['application/pdf', 'image/*'])
+            Grid::make(3)
                 ->columnSpanFull()
-                ->reactive()
-                ->afterStateUpdated(function (?array $state, Set $set, Get $get) {
-                    $newlyUploadedFile = last($state) ?? null;
+                ->schema([
+                    FileUpload::make('google_drive_file_id')
+                        ->label('Proof Document(s) (e.g., Certificate, Plaque Photo)')
+                        ->multiple()
+                        ->reorderable()
+                        ->required()
+                        ->disk('private')
+                        ->directory('proof-documents/kra4-awards')
+                        ->acceptedFileTypes(['application/pdf', 'image/*'])
+                        ->reactive()
+                        ->columnSpan(2),
 
-                    if (!$newlyUploadedFile instanceof TemporaryUploadedFile) {
-                        return;
-                    }
+                    Actions::make([
+                        //Autofill Button
+                        Action::make('autofill_certificate')
+                            ->label('Autofill from Certificate')
+                            ->icon('heroicon-s-sparkles')
+                            ->color('warning')
+                            ->action(function (Set $set, Get $get) {
+                                $files = $get('google_drive_file_id');
 
-                    $docAiService = app(DocumentAiService::class);
-                    $extractedData = $docAiService->processDocument($newlyUploadedFile);
+                                if (empty($files)) {
+                                    Notification::make()->title('No File Uploaded')->body('Please upload a certificate first.')->warning()->send();
+                                    return;
+                                }
 
-                    if ($extractedData['IsCertificate'] ?? false) {
-                        // Map your DocAI entity names → form fields
-                        $credentialType = $extractedData['Credential_Type'] ?? null;
-                        $dateCompleted = $extractedData['Date_Completed'] ?? $extractedData['Year_Issued'] ?? null;
-                        $issuingOrg = $extractedData['Issuing_Organization'] ?? null;
-                        $recipientName = $extractedData['User_Full_Name'] ?? null;
-                        $serialNumber = $extractedData['Serial_Number'] ?? null;
+                                $fileToProcess = null;
+                                foreach (array_reverse($files) as $file) {
+                                    if ($file instanceof TemporaryUploadedFile) {
+                                        $fileToProcess = $file;
+                                        break;
+                                    }
+                                }
 
-                        // Autofill
-                        $set('data.name', $credentialType ?? $get('data.name'));
-                        $set('data.date_given', $dateCompleted ?? $get('data.date_given'));
-                        $set('data.awarding_body', $issuingOrg ?? $get('data.awarding_body'));
+                                if (!$fileToProcess) {
+                                    Notification::make()->title('File Not Ready')->body('Please ensure the file upload is complete or try reloading the form.')->warning()->send();
+                                    return;
+                                }
 
-                        Notification::make()
-                            ->title('AI Extraction Successful')
-                            ->body('Certificate details were extracted and autofilled successfully.')
-                            ->success()
-                            ->send();
-                    } else {
-                        // Invalid certificate
-                        $currentFiles = collect($get('google_drive_file_id'))
-                            ->except(count($get('google_drive_file_id')) - 1)
-                            ->toArray();
+                                try {
+                                    $docAiService = app(DocumentAiService::class);
+                                    $extractedData = $docAiService->processDocument($fileToProcess);
 
-                        $set('google_drive_file_id', $currentFiles);
+                                    if ($extractedData['IsCertificate'] ?? false) {
+                                        $credentialType = $extractedData['CredentialType'] ?? null;
+                                        $dateCompleted = $extractedData['DateCompleted'] ?? $extractedData['YearIssued'] ?? null;
+                                        $issuingOrg = $extractedData['IssuingOrganization'] ?? null;
+                                        $venue = $extractedData['AwardVenue'] ?? null;
 
-                        Notification::make()
-                            ->title('Invalid Document')
-                            ->body('The uploaded file was not recognized as a valid certificate or diploma.')
-                            ->danger()
-                            ->send();
-                    }
-                }),
+                                        // Autofill
+                                        $set('data.name', $credentialType ?? $get('data.name'));
+                                        $set('data.date_given', $dateCompleted ?? $get('data.date_given'));
+                                        $set('data.awarding_body', $issuingOrg ?? $get('data.awarding_body'));
+                                        $set('data.venue', $venue ?? $get('data.venue'));
+
+                                        Notification::make()->title('AI Extraction Successful')->body('Certificate details were extracted and autofilled. Please review and save.')->success()->send();
+                                    } else {
+                                        Notification::make()->title('Invalid Certificate')->body('The file was not recognized as a valid certificate.')->warning()->send();
+                                    }
+                                } catch (\Exception $e) {
+                                    Log::error("Document AI Button Error: " . $e->getMessage());
+                                    Notification::make()->title('Document AI Error')->body('Failed to process document. Check logs for details.')->danger()->send();
+                                }
+                            })
+                            ->extraAttributes([
+                                'class' => 'mt-8', 
+                            ])
+                            ->visible(fn(Get $get) => !empty($get('google_drive_file_id'))), 
+                    ])->columnSpan(1)
+                ]),
         ];
     }
 }

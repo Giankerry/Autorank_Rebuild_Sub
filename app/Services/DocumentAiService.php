@@ -7,6 +7,7 @@ use Google\Cloud\DocumentAI\V1\ProcessRequest;
 use Google\Cloud\DocumentAI\V1\RawDocument;
 use Illuminate\Support\Facades\Log;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Illuminate\Support\Str; // Import the Str facade for case conversion
 
 class DocumentAiService
 {
@@ -31,53 +32,77 @@ class DocumentAiService
 
         // resolving credentials path
         $envPath = env('GOOGLE_APPLICATION_CREDENTIALS', 'google-service-account.json');
-        $this->credentialsPath = str_starts_with($envPath, base_path())
-            ? $envPath
-            : base_path($envPath);
 
-        if (file_exists($this->credentialsPath)) {
-            putenv("GOOGLE_APPLICATION_CREDENTIALS={$this->credentialsPath}");
+        // FIX START: Check for absolute path (Unix starts with /, Windows has drive letter/colon)
+        $isAbsolute = Str::startsWith($envPath, ['/', '\\']) || (strlen($envPath) > 1 && $envPath[1] === ':');
+
+        if ($isAbsolute) {
+            // It is an absolute path (like C:\...), use it directly.
+            $this->credentialsPath = $envPath;
         } else {
-            Log::warning("Google credentials file missing or invalid.", [
-                'path' => $this->credentialsPath
-            ]);
+            // It is a relative path (like google-service-account.json), prepend base_path().
+            $this->credentialsPath = base_path($envPath);
         }
+        // FIX END
     }
 
-    // document AI client
     protected function getClient(): DocumentProcessorServiceClient
     {
-        if (!file_exists($this->credentialsPath)) {
-            throw new \Exception("Google credentials file not found at: {$this->credentialsPath}");
-        }
-
         return new DocumentProcessorServiceClient([
-            'credentials' => $this->credentialsPath,
+            'credentials' => $this->credentialsPath
         ]);
     }
 
-    //document processing
-    public function processDocument(TemporaryUploadedFile $uploadedFile): array
+    // NEW HELPER: Standardize entity keys to PascalCase
+    protected function toPascalCase(string $string): string
     {
-        $content = $uploadedFile->get();
-        $mimeType = $uploadedFile->getMimeType();
-
-        $classificationLabel = $this->classifyDocument($content, $mimeType);
-
-        if (!in_array(strtoupper($classificationLabel), ['CERTIFICATE', 'DIPLOMA'])) {
-            Log::info('Document rejected', ['label' => $classificationLabel]);
-            return ['IsCertificate' => false];
-        }
-
-        $extractedData = $this->extractEntities($content, $mimeType);
-        $extractedData['IsCertificate'] = true;
-
-        return $extractedData;
+        // Convert to snake_case first to handle existing casings (camelCase, Title Case, etc.)
+        $snakeCase = Str::snake($string);
+        // Then convert to PascalCase (Title Case, removing spaces/underscores)
+        return str_replace(' ', '', ucwords(str_replace('_', ' ', $snakeCase)));
     }
 
-    //document classification
-    protected function classifyDocument(string $content, string $mimeType): ?string
+    public function processDocument(TemporaryUploadedFile $file): array
     {
+        $content = $file->get();
+        $mimeType = $file->getMimeType();
+
+        // Step 1: Classification
+        $classificationResult = $this->classifyDocument($content, $mimeType);
+        $documentType = $classificationResult['DocumentType'] ?? null;
+
+        // Return immediately if classification fails
+        if (is_null($documentType)) {
+            return [];
+        }
+
+        $result = ['DocumentType' => $documentType];
+
+        // Only proceed to extraction if it's a known certificate type that requires extraction
+        if (Str::contains($documentType, ['CERTIFICATE'], true)) {
+            $extractedEntities = $this->extractEntities($content, $mimeType);
+
+            // Merge extracted entities.
+            $result = array_merge($result, $extractedEntities);
+
+            // Set IsCertificate for convenience in widgets
+            $result['IsCertificate'] = true;
+        } else {
+            // Set IsCertificate to false for convenience in widgets
+            $result['IsCertificate'] = false;
+        }
+
+        return $result;
+    }
+
+    // document classification
+    protected function classifyDocument(string $content, string $mimeType): array
+    {
+        if (empty($this->classificationProcessorId)) {
+            Log::error("Missing DOCAI_CLASSIFIER_ID. Skipping classification.");
+            return [];
+        }
+
         $name = "projects/{$this->projectId}/locations/{$this->location}/processors/{$this->classificationProcessorId}";
         $client = $this->getClient();
 
@@ -91,24 +116,26 @@ class DocumentAiService
             $response = $client->processDocument($request);
             $document = $response->getDocument();
 
-            /** @var \Google\Protobuf\Internal\RepeatedField $repeatedEntities */
-            $repeatedEntities = $document->getEntities();
+            // FIX: Iterate directly over the RepeatedField object
+            $documentType = null;
+            $classificationResult = [];
 
-            $entities = iterator_to_array($repeatedEntities);
+            foreach ($document->getEntities() as $entity) {
+                // Assume the first entity's type is the classified document type.
+                $documentType = $entity->getType() ?? null;
+                break; // We only need the first entity for classification type
+            }
 
-            Log::info('Document AI classification entities:', array_map(
-                fn($e) => [
-                    'type' => $e->getType(),
-                    'mentionText' => $e->getMentionText()
-                ],
-                $entities
-            ));
+            if (!empty($documentType)) {
+                // Ensure the document type is always uppercase for reliable comparison (e.g., 'CERTIFICATE')
+                $classificationResult['DocumentType'] = Str::upper($documentType);
+            }
 
-            $firstType = $entities[0]->getType() ?? null;
-            return strtoupper($firstType ?? 'UNKNOWN');
+            Log::info('Classification result', ['DocumentType' => $documentType]);
+            return $classificationResult;
         } catch (\Exception $e) {
             Log::error("Document AI Classification Error: " . $e->getMessage());
-            return null;
+            return [];
         } finally {
             $client->close();
         }
@@ -117,6 +144,11 @@ class DocumentAiService
     //document extraction
     protected function extractEntities(string $content, string $mimeType): array
     {
+        if (empty($this->extractionProcessorId)) {
+            Log::error("Missing DOCAI_EXTRACTOR_ID. Skipping extraction.");
+            return [];
+        }
+
         $name = "projects/{$this->projectId}/locations/{$this->location}/processors/{$this->extractionProcessorId}";
         $client = $this->getClient();
 
@@ -130,14 +162,11 @@ class DocumentAiService
             $response = $client->processDocument($request);
             $document = $response->getDocument();
 
-            /** @var \Google\Protobuf\Internal\RepeatedField $repeatedEntities */
-            $repeatedEntities = $document->getEntities();
-
-            $entities = iterator_to_array($repeatedEntities);
-
             $extractedEntities = [];
-            foreach ($entities as $entity) {
-                $key = $entity->getType() ?: 'Unknown';
+            // FIX: Iterate directly over the RepeatedField object
+            foreach ($document->getEntities() as $entity) {
+                // APPLYING THE CASE CONVERSION HERE
+                $key = $this->toPascalCase($entity->getType() ?: 'Unknown');
                 $value = $entity->getMentionText() ?: null;
                 $extractedEntities[$key] = $value;
             }
