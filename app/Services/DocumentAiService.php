@@ -7,12 +7,13 @@ use Google\Cloud\DocumentAI\V1\ProcessRequest;
 use Google\Cloud\DocumentAI\V1\RawDocument;
 use Illuminate\Support\Facades\Log;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
-use Illuminate\Support\Str; // Import the Str facade for case conversion
+use Illuminate\Support\Str;
 
 class DocumentAiService
 {
     protected string $classificationProcessorId;
-    protected string $extractionProcessorId;
+    protected string $certificateExtractionProcessorId; // Renamed to clarify
+    protected string $moaExtractionProcessorId;       // NEW: MOA Extractor ID
     protected string $location;
     protected string $projectId;
     protected string $credentialsPath;
@@ -22,7 +23,10 @@ class DocumentAiService
         $this->projectId = config('services.google.project_id', env('GOOGLE_CLOUD_PROJECT_ID', ''));
         $this->location = config('services.google.location', env('DOCAI_LOCATION', 'us'));
         $this->classificationProcessorId = env('DOCAI_CLASSIFIER_ID', '');
-        $this->extractionProcessorId = env('DOCAI_EXTRACTOR_ID', '');
+
+        // Renaming/Setting Extractor IDs
+        $this->certificateExtractionProcessorId = env('DOCAI_EXTRACTOR_ID', ''); // Assuming DOCAI_EXTRACTOR_ID is for certificates
+        $this->moaExtractionProcessorId = env('DOCAI_MOA_EXTRACTOR_ID', '');   // NEW: For MOAs
 
         //project ID validation
         if (empty($this->projectId)) {
@@ -32,18 +36,13 @@ class DocumentAiService
 
         // resolving credentials path
         $envPath = env('GOOGLE_APPLICATION_CREDENTIALS', 'google-service-account.json');
-
-        // FIX START: Check for absolute path (Unix starts with /, Windows has drive letter/colon)
         $isAbsolute = Str::startsWith($envPath, ['/', '\\']) || (strlen($envPath) > 1 && $envPath[1] === ':');
 
         if ($isAbsolute) {
-            // It is an absolute path (like C:\...), use it directly.
             $this->credentialsPath = $envPath;
         } else {
-            // It is a relative path (like google-service-account.json), prepend base_path().
             $this->credentialsPath = base_path($envPath);
         }
-        // FIX END
     }
 
     protected function getClient(): DocumentProcessorServiceClient
@@ -53,12 +52,10 @@ class DocumentAiService
         ]);
     }
 
-    // NEW HELPER: Standardize entity keys to PascalCase
+    // Standardize entity keys to PascalCase (no change needed here, it handles both MOA and Cert fields)
     protected function toPascalCase(string $string): string
     {
-        // Convert to snake_case first to handle existing casings (camelCase, Title Case, etc.)
         $snakeCase = Str::snake($string);
-        // Then convert to PascalCase (Title Case, removing spaces/underscores)
         return str_replace(' ', '', ucwords(str_replace('_', ' ', $snakeCase)));
     }
 
@@ -71,33 +68,47 @@ class DocumentAiService
         $classificationResult = $this->classifyDocument($content, $mimeType);
         $documentType = $classificationResult['DocumentType'] ?? null;
 
-        // Return immediately if classification fails
         if (is_null($documentType)) {
             return [];
         }
 
         $result = ['DocumentType' => $documentType];
 
-        // Only proceed to extraction if it's a known certificate type that requires extraction
-        if (Str::contains($documentType, ['CERTIFICATE'], true)) {
-            $extractedEntities = $this->extractEntities($content, $mimeType);
+        // Determine which extractor to use based on classification
+        $processorIdToUse = null;
+        $isCertificate = false;
+        $isMoa = false;
 
-            // Merge extracted entities.
+        if (Str::contains($documentType, ['CERTIFICATE'], true)) {
+            $processorIdToUse = $this->certificateExtractionProcessorId;
+            $isCertificate = true;
+        } elseif (Str::contains($documentType, ['MOA', 'MEMORANDUM', 'AGREEMENT'], true)) { // Adjust MOA classification key as needed
+            $processorIdToUse = $this->moaExtractionProcessorId;
+            $isMoa = true;
+        }
+
+        // Only proceed to extraction if a valid processor was selected
+        if ($processorIdToUse) {
+            $extractedEntities = $this->extractEntities($content, $mimeType, $processorIdToUse);
+
             $result = array_merge($result, $extractedEntities);
 
-            // Set IsCertificate for convenience in widgets
-            $result['IsCertificate'] = true;
+            // Set flags for convenience in widgets
+            $result['IsCertificate'] = $isCertificate;
+            $result['IsMoa'] = $isMoa; // NEW FLAG
+
         } else {
-            // Set IsCertificate to false for convenience in widgets
             $result['IsCertificate'] = false;
+            $result['IsMoa'] = false;
         }
 
         return $result;
     }
 
-    // document classification
+    // document classification (no change needed here)
     protected function classifyDocument(string $content, string $mimeType): array
     {
+        // ... (classification logic remains the same)
         if (empty($this->classificationProcessorId)) {
             Log::error("Missing DOCAI_CLASSIFIER_ID. Skipping classification.");
             return [];
@@ -116,18 +127,15 @@ class DocumentAiService
             $response = $client->processDocument($request);
             $document = $response->getDocument();
 
-            // FIX: Iterate directly over the RepeatedField object
             $documentType = null;
             $classificationResult = [];
 
             foreach ($document->getEntities() as $entity) {
-                // Assume the first entity's type is the classified document type.
                 $documentType = $entity->getType() ?? null;
-                break; // We only need the first entity for classification type
+                break;
             }
 
             if (!empty($documentType)) {
-                // Ensure the document type is always uppercase for reliable comparison (e.g., 'CERTIFICATE')
                 $classificationResult['DocumentType'] = Str::upper($documentType);
             }
 
@@ -141,15 +149,15 @@ class DocumentAiService
         }
     }
 
-    //document extraction
-    protected function extractEntities(string $content, string $mimeType): array
+    // document extraction - modified to accept the processor ID to use
+    protected function extractEntities(string $content, string $mimeType, string $processorId): array
     {
-        if (empty($this->extractionProcessorId)) {
-            Log::error("Missing DOCAI_EXTRACTOR_ID. Skipping extraction.");
+        if (empty($processorId)) {
+            Log::error("Missing required Extractor ID. Skipping extraction.");
             return [];
         }
 
-        $name = "projects/{$this->projectId}/locations/{$this->location}/processors/{$this->extractionProcessorId}";
+        $name = "projects/{$this->projectId}/locations/{$this->location}/processors/{$processorId}";
         $client = $this->getClient();
 
         try {
@@ -163,9 +171,7 @@ class DocumentAiService
             $document = $response->getDocument();
 
             $extractedEntities = [];
-            // FIX: Iterate directly over the RepeatedField object
             foreach ($document->getEntities() as $entity) {
-                // APPLYING THE CASE CONVERSION HERE
                 $key = $this->toPascalCase($entity->getType() ?: 'Unknown');
                 $value = $entity->getMentionText() ?: null;
                 $extractedEntities[$key] = $value;

@@ -26,9 +26,12 @@ use Filament\Forms\Components\Actions;
 use Filament\Forms\Components\Actions\Action;
 use Filament\Forms\Components\Grid;
 use Illuminate\Support\Facades\Log;
+use App\Filament\Traits\AutofillDocument;
 
 class AwardsRecognitionWidget extends BaseKRAWidget
 {
+    use AutofillDocument;
+
     protected int|string|array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
@@ -58,7 +61,6 @@ class AwardsRecognitionWidget extends BaseKRAWidget
                     ->badge(),
                 Tables\Columns\TextColumn::make('data.awarding_body')->label('Award-Giving Body'),
                 Tables\Columns\TextColumn::make('data.date_given')->label('Date Given')->date(),
-                // Display the venue in the table
                 Tables\Columns\TextColumn::make('data.venue')->label('Venue of Ceremony'),
                 ScoreColumn::make('score'),
             ])
@@ -98,6 +100,28 @@ class AwardsRecognitionWidget extends BaseKRAWidget
             ->where('type', $this->getActiveSubmissionType())
             ->where('application_id', $this->selectedApplicationId);
     }
+
+    //map for autofill certificate data
+    protected function mapCertificateDataToForm(Set $set, Get $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
+    {
+        $set('data.name', $credentialType ?? $get('data.name'));
+        $set('data.date_given', $dateCompleted ?? $get('data.date_given'));
+        $set('data.awarding_body', $issuingOrg ?? $get('data.awarding_body'));
+        $set('data.venue', $venue ?? $get('data.venue'));
+    }
+
+    protected function mapMoaDataToForm(Set $set, Get $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
+    {
+        // This widget only handles Certificate data.
+        Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Memorandum of Agreement (MOA). This form requires a Certificate or Award Document.')->warning()->send();
+    }
+
+    protected function mapResearchDataToForm(Set $set, Get $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
+    {
+        //for cert data
+        Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Research Paper/Thesis. This form requires a Certificate or Award Document.')->warning()->send();
+    }
+
 
     protected function getFormSchema(): array
     {
@@ -142,6 +166,7 @@ class AwardsRecognitionWidget extends BaseKRAWidget
             Grid::make(3)
                 ->columnSpanFull()
                 ->schema([
+                    // Column 1 & 2: File Upload 
                     FileUpload::make('google_drive_file_id')
                         ->label('Proof Document(s) (e.g., Certificate, Plaque Photo)')
                         ->multiple()
@@ -153,63 +178,8 @@ class AwardsRecognitionWidget extends BaseKRAWidget
                         ->reactive()
                         ->columnSpan(2),
 
-                    Actions::make([
-                        //Autofill Button
-                        Action::make('autofill_certificate')
-                            ->label('Autofill from Certificate')
-                            ->icon('heroicon-s-sparkles')
-                            ->color('warning')
-                            ->action(function (Set $set, Get $get) {
-                                $files = $get('google_drive_file_id');
-
-                                if (empty($files)) {
-                                    Notification::make()->title('No File Uploaded')->body('Please upload a certificate first.')->warning()->send();
-                                    return;
-                                }
-
-                                $fileToProcess = null;
-                                foreach (array_reverse($files) as $file) {
-                                    if ($file instanceof TemporaryUploadedFile) {
-                                        $fileToProcess = $file;
-                                        break;
-                                    }
-                                }
-
-                                if (!$fileToProcess) {
-                                    Notification::make()->title('File Not Ready')->body('Please ensure the file upload is complete or try reloading the form.')->warning()->send();
-                                    return;
-                                }
-
-                                try {
-                                    $docAiService = app(DocumentAiService::class);
-                                    $extractedData = $docAiService->processDocument($fileToProcess);
-
-                                    if ($extractedData['IsCertificate'] ?? false) {
-                                        $credentialType = $extractedData['CredentialType'] ?? null;
-                                        $dateCompleted = $extractedData['DateCompleted'] ?? $extractedData['YearIssued'] ?? null;
-                                        $issuingOrg = $extractedData['IssuingOrganization'] ?? null;
-                                        $venue = $extractedData['AwardVenue'] ?? null;
-
-                                        // Autofill
-                                        $set('data.name', $credentialType ?? $get('data.name'));
-                                        $set('data.date_given', $dateCompleted ?? $get('data.date_given'));
-                                        $set('data.awarding_body', $issuingOrg ?? $get('data.awarding_body'));
-                                        $set('data.venue', $venue ?? $get('data.venue'));
-
-                                        Notification::make()->title('AI Extraction Successful')->body('Certificate details were extracted and autofilled. Please review and save.')->success()->send();
-                                    } else {
-                                        Notification::make()->title('Invalid Certificate')->body('The file was not recognized as a valid certificate.')->warning()->send();
-                                    }
-                                } catch (\Exception $e) {
-                                    Log::error("Document AI Button Error: " . $e->getMessage());
-                                    Notification::make()->title('Document AI Error')->body('Failed to process document. Check logs for details.')->danger()->send();
-                                }
-                            })
-                            ->extraAttributes([
-                                'class' => 'mt-8', 
-                            ])
-                            ->visible(fn(Get $get) => !empty($get('google_drive_file_id'))), 
-                    ])->columnSpan(1)
+                    //call autofill function
+                    $this->getAutofillAction(),
                 ]),
         ];
     }

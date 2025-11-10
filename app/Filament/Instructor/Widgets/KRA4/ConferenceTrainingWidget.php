@@ -18,6 +18,8 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use App\Tables\Columns\ScoreColumn;
+
+// ADDED IMPORTS FOR DOC AI AND FILAMENT ACTIONS
 use App\Services\DocumentAiService;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
@@ -26,10 +28,13 @@ use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Filament\Forms\Components\Actions;
 use Filament\Forms\Components\Actions\Action;
 use Filament\Forms\Components\Grid;
-use Illuminate\Support\Facades\Log; // Added Log for error handling
+use Illuminate\Support\Facades\Log;
+use App\Filament\Traits\AutofillDocument;
 
 class ConferenceTrainingWidget extends BaseKRAWidget
 {
+    use AutofillDocument;
+
     protected int | string | array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
@@ -108,118 +113,61 @@ class ConferenceTrainingWidget extends BaseKRAWidget
         ];
     }
 
+    protected function mapCertificateDataToForm(Set $set, Get $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
+    {
+        $set('data.name', $credentialType ?? $get('data.name'));
+        $set('data.date_activity', $dateCompleted ?? $get('data.date_activity'));
+        $set('data.organizer', $issuingOrg ?? $get('data.organizer'));
+        $set('data.venue', $venue ?? $get('data.venue'));
+    }
+
+    protected function mapMoaDataToForm(Set $set, Get $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
+    {
+        Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Memorandum of Agreement (MOA). This form requires a Certificate or Training Document.')->warning()->send();
+    }
+
+    protected function mapResearchDataToForm(Set $set, Get $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
+    {
+        Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Research Paper/Thesis. This form requires a Certificate or Training Document.')->warning()->send();
+    }
+
+
     protected function getFormSchema(): array
     {
         return [
             Textarea::make('data.name')
                 ->label('Name of Conference/Training')
-                ->required()
-                ->maxLength(65535)
-                ->columnSpanFull()
-                ->live(),
+                ->required()->maxLength(65535)->columnSpanFull()->live(),
 
             Select::make('data.scope')
                 ->label('Scope')
                 ->options([
                     'local' => 'Local',
                     'international' => 'International',
-                ])
-                ->searchable()
-                ->required(),
+                ])->searchable()->required(),
 
             TextInput::make('data.organizer')
                 ->label('Organizer/Sponsoring Body')
-                ->required()
-                ->maxLength(255)
-                ->live(),
+                ->required()->maxLength(255)->live(),
 
             DatePicker::make('data.date_activity')
                 ->label('Date of Activity')
-                ->native(false)
-                ->displayFormat('m/d/Y')
-                ->required()
-                ->maxDate(now())
-                ->live(),
+                ->native(false)->displayFormat('m/d/Y')->required()->maxDate(now())->live(),
 
             TextInput::make('data.venue')
                 ->label('Venue of Activity')
-                ->maxLength(255)
-                ->columnSpanFull()
-                ->live(),
+                ->maxLength(255)->columnSpanFull()->live(),
 
             Grid::make(3)
                 ->columnSpanFull()
                 ->schema([
+                    // Column 1 & 2: File Upload 
                     FileUpload::make('google_drive_file_id')
                         ->label('Proof Document(s) (e.g., Certificate of Participation)')
-                        ->multiple()
-                        ->reorderable()
-                        ->required()
-                        ->disk('private')
-                        ->directory('proof-documents/kra4-training')
-                        ->acceptedFileTypes(['application/pdf', 'image/*'])
-                        ->reactive()
-                        ->columnSpan(2),
-
-                    // FIX: Wrap the Action component inside Filament\Forms\Components\Actions
-                    Actions::make([
-                        // Column 3: The dedicated Autofill Button
-                        Action::make('autofill_certificate')
-                            ->label('Autofill from Certificate')
-                            ->icon('heroicon-s-sparkles')
-                            ->color('warning')
-                            ->action(function (Set $set, Get $get) {
-                                $files = $get('google_drive_file_id');
-
-                                if (empty($files)) {
-                                    Notification::make()->title('No File Uploaded')->body('Please upload a certificate first.')->warning()->send();
-                                    return;
-                                }
-
-                                // Find the last uploaded file instance to process
-                                $fileToProcess = null;
-                                foreach (array_reverse($files) as $file) {
-                                    if ($file instanceof TemporaryUploadedFile) {
-                                        $fileToProcess = $file;
-                                        break;
-                                    }
-                                }
-
-                                if (!$fileToProcess) {
-                                    Notification::make()->title('File Not Ready')->body('Please ensure the file upload is complete or try reloading the form.')->warning()->send();
-                                    return;
-                                }
-
-                                try {
-                                    $docAiService = app(DocumentAiService::class);
-                                    $extractedData = $docAiService->processDocument($fileToProcess);
-
-                                    if ($extractedData['IsCertificate'] ?? false) {
-                                        $credentialType = $extractedData['CredentialType'] ?? null;
-                                        $dateCompleted = $extractedData['DateCompleted'] ?? $extractedData['YearIssued'] ?? null;
-                                        $issuingOrg = $extractedData['IssuingOrganization'] ?? null;
-                                        $venue = $extractedData['AwardVenue'] ?? null;
-
-                                        // Autofill existing and new fields
-                                        $set('data.name', $credentialType ?? $get('data.name'));
-                                        $set('data.date_activity', $dateCompleted ?? $get('data.date_activity'));
-                                        $set('data.organizer', $issuingOrg ?? $get('data.organizer'));
-                                        $set('data.venue', $venue ?? $get('data.venue'));
-
-                                        Notification::make()->title('AI Extraction Successful')->body('Certificate details were extracted and autofilled. Please review and save.')->success()->send();
-                                    } else {
-                                        Notification::make()->title('Invalid Certificate')->body('The file was not recognized as a valid certificate.')->warning()->send();
-                                    }
-                                } catch (\Exception $e) {
-                                    Log::error("Document AI Button Error (Conf/Train): " . $e->getMessage());
-                                    Notification::make()->title('Document AI Error')->body('Failed to process document. Check logs for details.')->danger()->send();
-                                }
-                            })
-                            ->extraAttributes([
-                                'class' => 'mt-8',
-                            ])
-                            ->visible(fn(Get $get) => !empty($get('google_drive_file_id'))),
-                    ])->columnSpan(1)
+                        ->multiple()->reorderable()->required()
+                        ->disk('private')->directory('proof-documents/kra4-training')
+                        ->acceptedFileTypes(['application/pdf', 'image/*'])->reactive()->columnSpan(2),
+                    $this->getAutofillAction(),
                 ]),
         ];
     }
