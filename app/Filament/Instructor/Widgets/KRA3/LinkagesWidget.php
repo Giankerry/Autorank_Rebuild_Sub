@@ -4,7 +4,6 @@ namespace App\Filament\Instructor\Widgets\KRA3;
 
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -16,9 +15,9 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use App\Tables\Columns\ScoreColumn;
 use Filament\Forms\Get;
-
-// NEW IMPORTS
-use App\Services\DocumentAiService;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
+use App\Services\DocumentAiService; //imports for Doc AI and autofill
 use Filament\Forms\Set;
 use Filament\Notifications\Notification;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -27,17 +26,23 @@ use Filament\Forms\Components\Actions\Action;
 use Filament\Forms\Components\Grid;
 use Illuminate\Support\Facades\Log;
 use App\Filament\Traits\AutofillDocument;
+use Filament\Forms\Components\FileUpload;
 
 class LinkagesWidget extends BaseKRAWidget
 {
-    // Use the trait
     use AutofillDocument;
+    use HandlesKRAFileUploads;
 
     protected int | string | array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
 
     protected static string $view = 'filament.instructor.widgets.k-r-a3.linkages-widget';
+
+    protected function getGoogleDriveFolderPath(): array
+    {
+        return [$this->getKACategory(), 'A. Linkages, Networking and Partnership'];
+    }
 
     protected function getKACategory(): string
     {
@@ -99,6 +104,7 @@ class LinkagesWidget extends BaseKRAWidget
     protected function getTableActions(): array
     {
         return [
+            ViewSubmissionFilesAction::make(),
             Tables\Actions\EditAction::make()
                 ->form($this->getFormSchema())
                 ->modalHeading('Edit Linkage/Partnership')
@@ -110,18 +116,19 @@ class LinkagesWidget extends BaseKRAWidget
         ];
     }
 
+    // Handles Certificate documents 
     protected function mapCertificateDataToForm(Set $set, Get $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
     {
         Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Certificate. This form requires a Memorandum of Agreement (MOA).')->warning()->send();
     }
 
+    // handles MOA documents 
     protected function mapMoaDataToForm(Set $set, Get $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
     {
-        // Autofill MOA fields
         $set('data.partner_name', $partnerName ?? $get('data.partner_name'));
         $set('data.moa_start', $startDate ?? $get('data.moa_start'));
         $set('data.moa_expiration', $expirationDate ?? $get('data.moa_expiration'));
-        //using scope if activities are empty
+
         if (empty($get('data.activities')) && !empty($scope)) {
             $set('data.activities', "Activities related to the partnership scope: " . $scope);
         }
@@ -181,21 +188,11 @@ class LinkagesWidget extends BaseKRAWidget
                 ->required()
                 ->maxDate(now()),
 
-            //Grid for File upload and Autofill Button
+            // FIX: Correctly merged Grid
             Grid::make(3)
                 ->columnSpanFull()
                 ->schema([
-                    FileUpload::make('google_drive_file_id')
-                        ->label('Proof Document(s) (MOA, MOU, or other evidence)')
-                        ->multiple()
-                        ->reorderable()
-                        ->required()
-                        ->disk('private')
-                        ->directory('proof-documents/kra3-linkages')
-                        ->acceptedFileTypes(['application/pdf', 'image/*'])
-                        ->reactive()
-                        ->columnSpan(2),
-
+                    $this->getKRAFileUploadComponent()->columnSpan(2),
                     $this->getAutofillAction(),
                 ]),
         ];

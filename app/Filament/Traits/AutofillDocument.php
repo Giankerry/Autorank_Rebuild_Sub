@@ -2,28 +2,30 @@
 
 namespace App\Filament\Traits;
 
-use App\Services\DocumentAiService;
+use App\Services\DocumentAiService; //imports for Doc AI and autofill
 use Filament\Forms\Components\Actions;
 use Filament\Forms\Components\Actions\Action;
 use Filament\Forms\Get;
-use Filament\Forms\Set;
+use Filament\Forms\Set; // for getting and setting form values for autofill
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Log;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Illuminate\Support\Str; // supports string formatting
 
 trait AutofillDocument
 {
-    //bstract method implemented by the widget to map certificate-related data
+    // Certificate data mapping
     abstract protected function mapCertificateDataToForm(Set $set, Get $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void;
 
-    //Abstract method implemented by the widget to map MOA-related data
+    // abstract for moa mapping
     abstract protected function mapMoaDataToForm(Set $set, Get $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void;
 
-    //abstract method implemented by the widget to map research/thesis data
 
+    // abstract for research/thesis mapping
     abstract protected function mapResearchDataToForm(Set $set, Get $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void;
 
 
+    // The general autofill action for all document types
     protected function getAutofillAction(): Actions
     {
         return Actions::make([
@@ -38,7 +40,7 @@ trait AutofillDocument
                         Notification::make()->title('No File Uploaded')->body('Please upload a document first.')->warning()->send();
                         return;
                     }
-
+                    // find the latest temporary file
                     $fileToProcess = null;
                     foreach (array_reverse($files) as $file) {
                         if ($file instanceof TemporaryUploadedFile) {
@@ -46,7 +48,7 @@ trait AutofillDocument
                             break;
                         }
                     }
-
+                    // if no file found
                     if (!$fileToProcess) {
                         Notification::make()->title('File Not Ready')->body('Please ensure the file upload is complete or try reloading the form.')->warning()->send();
                         return;
@@ -56,43 +58,50 @@ trait AutofillDocument
                         $docAiService = app(DocumentAiService::class);
                         $extractedData = $docAiService->processDocument($fileToProcess);
 
-                        if ($extractedData['IsCertificate'] ?? false) {
-                            // check if doc is certificate
-                            $credentialType = $extractedData['CredentialType'] ?? null;
+                        // Get flags from the service
+                        $isCertificate = $extractedData['IsCertificate'] ?? false;
+                        $isMoa = $extractedData['IsMoa'] ?? false;
+                        $isResearch = $extractedData['IsResearch'] ?? false;
+                        $docType = $extractedData['DocumentType'] ?? 'Unknown';
+
+
+                        if ($isCertificate) {
+                            // certificate/diploma checks
+                            $credentialType = Str::title(strtolower($extractedData['CredentialType'] ?? null));
                             $dateCompleted = $extractedData['DateCompleted'] ?? $extractedData['YearIssued'] ?? null;
-                            $issuingOrg = $extractedData['IssuingOrganization'] ?? null;
-                            $venue = $extractedData['AwardVenue'] ?? null;
+                            $issuingOrg = Str::title(strtolower($extractedData['IssuingOrganization'] ?? null));
+                            $venue = Str::title(strtolower($extractedData['AwardVenue'] ?? null));
 
                             $this->mapCertificateDataToForm($set, $get, $credentialType, $dateCompleted, $issuingOrg, $venue);
-                            Notification::make()->title('AI Extraction Successful')->body('Certificate details were extracted and autofilled.')->success()->send();
-                        } elseif ($extractedData['IsMoa'] ?? false) {
-                            // check if doc is moa
-                            $partnerName = $extractedData['PartnerName'] ?? null;
+                            Notification::make()->title('AI Extraction Successful')->body('Document details were extracted and autofilled.')->success()->send();
+                        } elseif ($isMoa) {
+                            //check if moa
+                            $partnerName = Str::title(strtolower($extractedData['PartnerName'] ?? null));
                             $startDate = $extractedData['DateOfEffectivity'] ?? null;
                             $expirationDate = $extractedData['ExpirationDate'] ?? null;
                             $scope = $extractedData['Scope'] ?? null;
+
                             $this->mapMoaDataToForm($set, $get, $partnerName, $startDate, $expirationDate, $scope);
                             Notification::make()->title('AI Extraction Successful')->body('Agreement details were extracted and autofilled.')->success()->send();
-                            //check if doc is research/thesis
-                        } elseif ($extractedData['IsResearch'] ?? false) {
+                        } elseif ($isResearch) {
+                            // check if research/thesis
                             $title = $extractedData['Title'] ?? null;
                             $authorList = $extractedData['AuthorList'] ?? null;
-                            $publisher = $extractedData['Publisher'] ?? null;
+                            $publisher = Str::title(strtolower($extractedData['Publisher'] ?? null));
                             $datePublished = $extractedData['DatePublished'] ?? null;
-                            $documentType = $extractedData['DocumentType'] ?? null;
 
-                            $this->mapResearchDataToForm($set, $get, $title, $authorList, $publisher, $datePublished, $documentType);
+                            $this->mapResearchDataToForm($set, $get, $title, $authorList, $publisher, $datePublished, $docType);
                             Notification::make()->title('AI Extraction Successful')->body('Research/Thesis details were extracted and autofilled.')->success()->send();
                         } else {
-                            $docType = $extractedData['DocumentType'] ?? 'Unknown';
+                            // document type not recognized fail message
                             Log::warning("Autofill failed: Document type '{$docType}' is not supported by this form.");
                             Notification::make()
                                 ->title('Document Not Supported')
-                                ->body('The uploaded document type is not supported for autofill in this form.')
+                                ->body("The document type '{$docType}' is not supported for autofill in this form.")
                                 ->warning()
                                 ->send();
                         }
-                    } catch (\Exception $e) {
+                    } catch (\Exception $e) { // general error catch
                         Log::error("Document AI Button Error: " . $e->getMessage());
                         Notification::make()
                             ->title('Document AI Error')

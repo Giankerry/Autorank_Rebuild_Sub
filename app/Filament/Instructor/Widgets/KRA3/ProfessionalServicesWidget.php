@@ -4,7 +4,6 @@ namespace App\Filament\Instructor\Widgets\KRA3;
 
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -20,9 +19,13 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use App\Forms\Components\TrimmedIntegerInput;
 use App\Tables\Columns\ScoreColumn;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
 
 class ProfessionalServicesWidget extends BaseKRAWidget
 {
+    use HandlesKRAFileUploads;
+
     protected int | string | array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
@@ -31,9 +34,121 @@ class ProfessionalServicesWidget extends BaseKRAWidget
 
     public ?string $activeTable = 'accreditation_services';
 
+    public array $availableMediaServiceTypes = [];
+
+    public function mount(): void
+    {
+        parent::mount();
+        $this->loadAvailableTypes();
+    }
+
     public function updatedActiveTable(): void
     {
         $this->resetTable();
+        $this->loadAvailableTypes();
+    }
+
+    protected function getGoogleDriveFolderPath(): array
+    {
+        $kra = $this->getKACategory();
+        $baseFolder = 'B: Service to the Community';
+
+        switch ($this->activeTable) {
+            case 'accreditation_services':
+                return [$kra, $baseFolder, 'QA Services'];
+            case 'judge_examiner':
+                return [$kra, $baseFolder, 'Judge or Examiner'];
+            case 'consultant':
+                return [$kra, $baseFolder, 'Consultant'];
+            case 'media_service':
+                return [$kra, $baseFolder, 'Media Service'];
+            case 'training_resource_person':
+                return [$kra, $baseFolder, 'Training (Resource Person)'];
+            default:
+                return [$kra, $baseFolder, Str::slug($this->activeTable)];
+        }
+    }
+
+    protected function getOptionsMaps(): array
+    {
+        return [
+            'accreditation_scope' => [
+                'local' => 'Local',
+                'international' => 'International'
+            ],
+            'award_nature' => [
+                'research_award' => 'Research Award',
+                'academic_competition' => 'Academic Competition',
+            ],
+            'consultant_scope' => [
+                'local' => 'Local',
+                'international' => 'International'
+            ],
+            'media_service' => [
+                'writer_occasional_newspaper' => 'Writer of Occasional Newspaper Column/Magazine Article',
+                'writer_regular_newspaper' => 'Writer of Regular Newspaper Column/Magazine Article',
+                'host_tv_radio_program' => 'Host of TV/Radio Program',
+                'guest_technical_expert' => 'Guesting as Technical Expert for TV or Radio',
+            ],
+            'training_participation' => [
+                'resource_person' => 'Resource Person',
+                'convenor' => 'Convenor',
+                'facilitator' => 'Facilitator',
+                'moderator' => 'Moderator',
+                'keynote_speaker' => 'Keynote/Plenary Speaker',
+                'panelist' => 'Panelist',
+                'other' => 'Other',
+            ],
+            'training_scope' => [
+                'local' => 'Local',
+                'international' => 'International'
+            ],
+        ];
+    }
+
+    public function getDisplayFormattingMap(): array
+    {
+        $maps = $this->getOptionsMaps();
+
+        return [
+            'Scope' => array_merge($maps['accreditation_scope'], $maps['consultant_scope'], $maps['training_scope']),
+            'Award Nature' => $maps['award_nature'],
+            'Service' => $maps['media_service'],
+            'Participation Type' => $maps['training_participation'],
+
+            'Period Start' => 'm/d/Y',
+            'Period End' => 'm/d/Y',
+            'Event Date' => 'm/d/Y',
+        ];
+    }
+
+    private function loadAvailableTypes(): void
+    {
+        if ($this->activeTable !== 'media_service') {
+            $this->availableMediaServiceTypes = [];
+            return;
+        }
+
+        $allTypes = $this->getOptionsMaps()['media_service'];
+
+        $submittedTypes = Submission::where('user_id', Auth::id())
+            ->where('application_id', $this->selectedApplicationId)
+            ->where('type', $this->getActiveSubmissionType())
+            ->pluck('data')
+            ->pluck('service')
+            ->filter()
+            ->all();
+
+        $this->availableMediaServiceTypes = array_filter(
+            $allTypes,
+            fn($key) => !in_array($key, $submittedTypes),
+            ARRAY_FILTER_USE_KEY
+        );
+    }
+
+    private function getAvailableMediaServiceTypes(): array
+    {
+        return $this->availableMediaServiceTypes;
     }
 
     protected function getKACategory(): string
@@ -82,7 +197,9 @@ class ProfessionalServicesWidget extends BaseKRAWidget
 
     protected function getTableColumns(): array
     {
+        $maps = $this->getOptionsMaps();
         $columns = [];
+
         switch ($this->activeTable) {
             case 'accreditation_services':
                 $columns = [
@@ -90,7 +207,7 @@ class ProfessionalServicesWidget extends BaseKRAWidget
                     Tables\Columns\TextColumn::make('data.services_provided')->label('Services Provided'),
                     Tables\Columns\TextColumn::make('data.scope')
                         ->label('Scope')
-                        ->formatStateUsing(fn(?string $state): string => Str::title($state))
+                        ->formatStateUsing(fn(?string $state): string => $maps['accreditation_scope'][$state] ?? Str::title($state ?? ''))
                         ->badge(),
                     Tables\Columns\TextColumn::make('data.deployment_count')->label('No. of Days'),
                     ScoreColumn::make('score'),
@@ -100,10 +217,10 @@ class ProfessionalServicesWidget extends BaseKRAWidget
                 $columns = [
                     Tables\Columns\TextColumn::make('data.event_title')->label('Title of Event/Activity')->wrap(),
                     Tables\Columns\TextColumn::make('data.organizer')->label('Organizer'),
-                    Tables\Columns\TextColumn::make('data.event_date')->label('Date of Event')->date(),
+                    Tables\Columns\TextColumn::make('data.event_date')->label('Date of Event')->date('m/d/Y'),
                     Tables\Columns\TextColumn::make('data.award_nature')
                         ->label('Nature')
-                        ->formatStateUsing(fn(?string $state): string => Str::of($state)->replace('_', ' ')->title())
+                        ->formatStateUsing(fn(?string $state): string => $maps['award_nature'][$state] ?? Str::of($state)->replace('_', ' ')->title())
                         ->badge(),
                     ScoreColumn::make('score'),
                 ];
@@ -114,7 +231,7 @@ class ProfessionalServicesWidget extends BaseKRAWidget
                     Tables\Columns\TextColumn::make('data.organization_name')->label('Organization'),
                     Tables\Columns\TextColumn::make('data.scope')
                         ->label('Scope')
-                        ->formatStateUsing(fn(?string $state): string => Str::title($state))
+                        ->formatStateUsing(fn(?string $state): string => $maps['consultant_scope'][$state] ?? Str::title($state ?? ''))
                         ->badge(),
                     Tables\Columns\TextColumn::make('data.role')->label('Role'),
                     ScoreColumn::make('score'),
@@ -124,7 +241,7 @@ class ProfessionalServicesWidget extends BaseKRAWidget
                 $columns = [
                     Tables\Columns\TextColumn::make('data.service')
                         ->label('Service')
-                        ->formatStateUsing(fn(?string $state): string => Str::of($state)->replace('_', ' ')->title())
+                        ->formatStateUsing(fn(?string $state): string => $maps['media_service'][$state] ?? Str::of($state)->replace('_', ' ')->title())
                         ->badge()
                         ->wrap(),
                     Tables\Columns\TextColumn::make('data.media_name')->label('Name of Media'),
@@ -144,13 +261,13 @@ class ProfessionalServicesWidget extends BaseKRAWidget
                     Tables\Columns\TextColumn::make('data.training_title')->label('Title of Training')->wrap(),
                     Tables\Columns\TextColumn::make('data.participation_type')
                         ->label('Participation')
-                        ->formatStateUsing(fn(?string $state): string => Str::of($state)->replace('_', ' ')->title())
+                        ->formatStateUsing(fn(?string $state): string => $maps['training_participation'][$state] ?? Str::of($state)->replace('_', ' ')->title())
                         ->badge()
                         ->wrap(),
                     Tables\Columns\TextColumn::make('data.organizer')->label('Organizer'),
                     Tables\Columns\TextColumn::make('data.scope')
                         ->label('Scope')
-                        ->formatStateUsing(fn(?string $state): string => Str::title($state))
+                        ->formatStateUsing(fn(?string $state): string => $maps['training_scope'][$state] ?? Str::title($state ?? ''))
                         ->badge(),
                     Tables\Columns\TextColumn::make('data.total_hours')->label('Total Hours'),
                     ScoreColumn::make('score'),
@@ -178,21 +295,33 @@ class ProfessionalServicesWidget extends BaseKRAWidget
                 })
                 ->modalHeading(fn(): string => 'Submit New ' . Str::of($this->activeTable)->replace('_', ' ')->title())
                 ->modalWidth('3xl')
-                ->hidden(fn(): bool => $this->submissionExistsForCurrentType())
-                ->after(fn() => $this->mount()),
+                ->hidden(function (): bool {
+                    if ($this->activeTable !== 'media_service') {
+                        return false;
+                    }
+                    return empty($this->availableMediaServiceTypes);
+                })
+                ->after(function () {
+                    $this->loadAvailableTypes();
+                    $this->mount();
+                }),
         ];
     }
 
     protected function getTableActions(): array
     {
         return [
+            ViewSubmissionFilesAction::make(),
             EditAction::make()
                 ->form($this->getFormSchema())
                 ->modalHeading(fn(): string => 'Edit ' . Str::of($this->activeTable)->replace('_', ' ')->title())
                 ->modalWidth('3xl')
                 ->visible($this->getActionVisibility()),
             DeleteAction::make()
-                ->after(fn() => $this->mount())
+                ->after(function () {
+                    $this->loadAvailableTypes();
+                    $this->mount();
+                })
                 ->visible($this->getActionVisibility()),
         ];
     }
@@ -208,14 +337,7 @@ class ProfessionalServicesWidget extends BaseKRAWidget
             default => [],
         };
 
-        $schema[] = FileUpload::make('google_drive_file_id')
-            ->label('Proof Document(s) (Evidence Link)')
-            ->multiple()
-            ->reorderable()
-            ->required()
-            ->disk('private')
-            ->directory(fn(): string => 'proof-documents/kra3-prof/' . $this->activeTable)
-            ->columnSpanFull();
+        $schema[] = $this->getKRAFileUploadComponent();
 
         return $schema;
     }
@@ -239,7 +361,7 @@ class ProfessionalServicesWidget extends BaseKRAWidget
                 ->minDate(fn(Get $get) => $get('data.period_start')),
             Textarea::make('data.services_provided')->label('QA-related Services Provided')->required()->maxLength(65535)->columnSpanFull(),
             Select::make('data.scope')->label('Scope')
-                ->options(['local' => 'Local', 'international' => 'International'])
+                ->options($this->getOptionsMaps()['accreditation_scope'])
                 ->searchable()
                 ->required(),
             TrimmedIntegerInput::make('data.deployment_count')->label('No. of Days Rendered')->required()->minValue(1),
@@ -258,10 +380,7 @@ class ProfessionalServicesWidget extends BaseKRAWidget
                 ->required()
                 ->maxDate(now()),
             Select::make('data.award_nature')->label('Nature of the Award')
-                ->options([
-                    'research_award' => 'Research Award',
-                    'academic_competition' => 'Academic Competition',
-                ])
+                ->options($this->getOptionsMaps()['award_nature'])
                 ->searchable()
                 ->required(),
             TextInput::make('data.venue')->label('Venue')->required()->maxLength(255),
@@ -288,7 +407,7 @@ class ProfessionalServicesWidget extends BaseKRAWidget
                 ->required()
                 ->minDate(fn(Get $get) => $get('data.period_start')),
             Select::make('data.scope')->label('Scope')
-                ->options(['local' => 'Local', 'international' => 'International'])
+                ->options($this->getOptionsMaps()['consultant_scope'])
                 ->searchable()
                 ->required(),
             TextInput::make('data.role')->label('Role')->required()->maxLength(255),
@@ -299,12 +418,13 @@ class ProfessionalServicesWidget extends BaseKRAWidget
     {
         return [
             Select::make('data.service')->label('Service Rendered')
-                ->options([
-                    'writer_occasional_newspaper' => 'Writer of Occasional Newspaper Column/Magazine Article',
-                    'writer_regular_newspaper' => 'Writer of Regular Newspaper Column/Magazine Article',
-                    'host_tv_radio_program' => 'Host of TV/Radio Program',
-                    'guest_technical_expert' => 'Guesting as Technical Expert for TV or Radio',
-                ])
+                ->options(function (?Submission $record): array {
+                    $allTypes = $this->getOptionsMaps()['media_service'];
+                    if ($record) {
+                        return $allTypes;
+                    }
+                    return $this->getAvailableMediaServiceTypes();
+                })
                 ->searchable()
                 ->required()
                 ->live()
@@ -337,15 +457,7 @@ class ProfessionalServicesWidget extends BaseKRAWidget
         return [
             Textarea::make('data.training_title')->label('Title of the Training/Course/Seminar/Workshop')->required()->maxLength(65535)->columnSpanFull(),
             Select::make('data.participation_type')->label('Type of Participation/Role')
-                ->options([
-                    'resource_person' => 'Resource Person',
-                    'convenor' => 'Convenor',
-                    'facilitator' => 'Facilitator',
-                    'moderator' => 'Moderator',
-                    'keynote_speaker' => 'Keynote/Plenary Speaker',
-                    'panelist' => 'Panelist',
-                    'other' => 'Other',
-                ])
+                ->options($this->getOptionsMaps()['training_participation'])
                 ->searchable()
                 ->required(),
             TextInput::make('data.organizer')->label('Organizer/Sponsoring Body')->required()->maxLength(255),
@@ -362,7 +474,7 @@ class ProfessionalServicesWidget extends BaseKRAWidget
                 ->displayFormat('m/d/Y')
                 ->minDate(fn(Get $get) => $get('data.period_start')),
             Select::make('data.scope')->label('Scope')
-                ->options(['local' => 'Local', 'international' => 'International'])
+                ->options($this->getOptionsMaps()['training_scope'])
                 ->searchable()
                 ->required(),
             TrimmedIntegerInput::make('data.total_hours')->label('Total No. of Hours')->required()->minValue(1),

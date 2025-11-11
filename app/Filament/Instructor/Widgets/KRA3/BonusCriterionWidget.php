@@ -4,7 +4,6 @@ namespace App\Filament\Instructor\Widgets\KRA3;
 
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Get;
 use Filament\Tables;
@@ -17,14 +16,28 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use App\Tables\Columns\ScoreColumn;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
 
 class BonusCriterionWidget extends BaseKRAWidget
 {
+    use HandlesKRAFileUploads;
+
     protected int | string | array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
 
     protected static string $view = 'filament.instructor.widgets.k-r-a3.bonus-criterion-widget';
+
+    protected function getGoogleDriveFolderPath(): array
+    {
+        return [$this->getKACategory(), 'D: Bonus Criterion'];
+    }
+
+    protected function isMultipleSubmissionAllowed(): bool
+    {
+        return false;
+    }
 
     protected function getKACategory(): string
     {
@@ -36,6 +49,41 @@ class BonusCriterionWidget extends BaseKRAWidget
         return 'extension-bonus-designation';
     }
 
+    protected function getOptionsMaps(): array
+    {
+        return [
+            'designation' => [
+                'president_oic' => 'President or OIC President',
+                'vice_president' => 'Vice-President',
+                'chancellor' => 'Chancellor',
+                'vice_chancellor' => 'Vice-Chancellor',
+                'campus_director' => 'Campus Director/Administrator/Head',
+                'faculty_regent' => 'Faculty Regent',
+                'office_director' => 'Office Director',
+                'university_college_secretary' => 'University/College Secretary',
+                'dean' => 'Dean',
+                'associate_dean' => 'Associate Dean',
+                'project_head_kra3d' => 'Project Head',
+                'department_head' => 'Department Head',
+                'institution_committee_chair' => 'Institution-level Committee Chair',
+                'institution_committee_member' => 'Institution-level Committee Member',
+                'college_secretary' => 'College Secretary',
+                'program_chair' => 'Program Chair/Project Head',
+                'department_committee_chair' => 'Department-level Committee Chair',
+                'department_committee_member' => 'Department-level Committee Member',
+            ],
+        ];
+    }
+
+    public function getDisplayFormattingMap(): array
+    {
+        return [
+            'Designation' => $this->getOptionsMaps()['designation'],
+            'Period Start' => 'm/d/Y',
+            'Period End' => 'm/d/Y',
+        ];
+    }
+
     public function table(Table $table): Table
     {
         return $table
@@ -44,11 +92,11 @@ class BonusCriterionWidget extends BaseKRAWidget
             ->columns([
                 Tables\Columns\TextColumn::make('data.designation')
                     ->label('Designation')
-                    ->formatStateUsing(fn(?string $state): string => Str::of($state)->replace('_', ' ')->title())
+                    ->formatStateUsing(fn(?string $state): string => $this->getOptionsMaps()['designation'][$state] ?? Str::of($state)->replace('_', ' ')->title())
                     ->badge()
                     ->wrap(),
-                Tables\Columns\TextColumn::make('data.period_start')->label('Effectivity Start')->date(),
-                Tables\Columns\TextColumn::make('data.period_end')->label('Effectivity End')->date(),
+                Tables\Columns\TextColumn::make('data.period_start')->label('Effectivity Start')->date('m/d/Y'),
+                Tables\Columns\TextColumn::make('data.period_end')->label('Effectivity End')->date('m/d/Y'),
                 ScoreColumn::make('score'),
             ])
             ->headerActions([
@@ -64,9 +112,11 @@ class BonusCriterionWidget extends BaseKRAWidget
                     })
                     ->modalHeading('Submit Administrative Designation')
                     ->modalWidth('2xl')
+                    ->hidden(fn(): bool => $this->submissionExistsForCurrentType())
                     ->after(fn() => $this->mount()),
             ])
             ->actions([
+                ViewSubmissionFilesAction::make(),
                 Tables\Actions\EditAction::make()
                     ->form($this->getFormSchema())
                     ->modalHeading('Edit Administrative Designation')
@@ -92,26 +142,7 @@ class BonusCriterionWidget extends BaseKRAWidget
         return [
             Select::make('data.designation')
                 ->label('Designation')
-                ->options([
-                    'president_oic' => 'President or OIC President',
-                    'vice_president' => 'Vice-President',
-                    'chancellor' => 'Chancellor',
-                    'vice_chancellor' => 'Vice-Chancellor',
-                    'campus_director' => 'Campus Director/Administrator/Head',
-                    'faculty_regent' => 'Faculty Regent',
-                    'office_director' => 'Office Director',
-                    'university_college_secretary' => 'University/College Secretary',
-                    'dean' => 'Dean',
-                    'associate_dean' => 'Associate Dean',
-                    'project_head_kra3d' => 'Project Head',
-                    'department_head' => 'Department Head',
-                    'institution_committee_chair' => 'Institution-level Committee Chair',
-                    'institution_committee_member' => 'Institution-level Committee Member',
-                    'college_secretary' => 'College Secretary',
-                    'program_chair' => 'Program Chair/Project Head',
-                    'department_committee_chair' => 'Department-level Committee Chair',
-                    'department_committee_member' => 'Department-level Committee Member',
-                ])
+                ->options($this->getOptionsMaps()['designation'])
                 ->required()
                 ->searchable()
                 ->columnSpanFull(),
@@ -128,14 +159,8 @@ class BonusCriterionWidget extends BaseKRAWidget
                 ->displayFormat('m/d/Y')
                 ->required()
                 ->minDate(fn(Get $get) => $get('data.period_start')),
-            FileUpload::make('google_drive_file_id')
-                ->label('Proof Document(s) (Evidence Link)')
-                ->multiple()
-                ->reorderable()
-                ->required()
-                ->disk('private')
-                ->directory('proof-documents/kra3-bonus')
-                ->columnSpanFull(),
+
+            $this->getKRAFileUploadComponent(),
         ];
     }
 }

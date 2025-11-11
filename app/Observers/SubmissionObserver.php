@@ -4,14 +4,18 @@ namespace App\Observers;
 
 use App\Models\Submission;
 use App\Services\ScoringService;
+use App\Services\GoogleDriveService;
+use Illuminate\Support\Facades\Log;
 
 class SubmissionObserver
 {
-    private $scoringService;
+    protected $scoringService;
+    protected $driveService;
 
-    public function __construct()
+    public function __construct(ScoringService $scoringService, GoogleDriveService $driveService)
     {
-        $this->scoringService = new ScoringService();
+        $this->scoringService = $scoringService;
+        $this->driveService = $driveService;
     }
 
     public function saving(Submission $submission): void
@@ -183,5 +187,35 @@ class SubmissionObserver
 
         $submission->raw_score = $calculatedScores['raw'];
         $submission->score = $calculatedScores['score'];
+    }
+
+    /**
+     * Handle the Submission "deleting" event.
+     * This ensures Google Drive files are
+     * cleaned up when a submission is deleted from the database.
+     */
+    public function deleting(Submission $submission): void
+    {
+        $fileIds = $submission->google_drive_file_id;
+
+        if (!is_array($fileIds) || empty($fileIds)) {
+            return;
+        }
+
+        try {
+            $driveService = $this->driveService->forUser($submission->user);
+
+            foreach ($fileIds as $fileId) {
+                if (is_string($fileId)) {
+                    $driveService->deleteFile($fileId);
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error('Google Drive file deletion failed during SubmissionObserver cleanup.', [
+                'submission_id' => $submission->id,
+                'user_id' => $submission->user_id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 }

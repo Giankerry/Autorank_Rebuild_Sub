@@ -3,7 +3,6 @@
 namespace App\Filament\Instructor\Widgets\KRA3;
 
 use App\Models\Submission;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -19,14 +18,28 @@ use Illuminate\Support\Facades\Auth;
 use App\Forms\Components\TrimmedIntegerInput;
 use App\Forms\Components\TrimmedNumericInput;
 use App\Tables\Columns\ScoreColumn;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
 
 class QualityOfExtensionWidget extends BaseKRAWidget
 {
+    use HandlesKRAFileUploads;
+
     protected int | string | array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
 
     protected static string $view = 'filament.instructor.widgets.k-r-a3.quality-of-extension-widget';
+
+    protected function getGoogleDriveFolderPath(): array
+    {
+        return [$this->getKACategory(), 'C: Quality of Extension Services'];
+    }
+
+    protected function isMultipleSubmissionAllowed(): bool
+    {
+        return false;
+    }
 
     protected function getKACategory(): string
     {
@@ -36,6 +49,25 @@ class QualityOfExtensionWidget extends BaseKRAWidget
     protected function getActiveSubmissionType(): string
     {
         return 'extension-quality-rating';
+    }
+
+    protected function getOptionsMaps(): array
+    {
+        return [
+            'deduction_reason' => [
+                'NOT APPLICABLE' => 'Not Applicable',
+                'ON APPROVED STUDY LEAVE' => 'On Approved Study Leave',
+                'ON APPROVED SABBATICAL LEAVE' => 'On Approved Sabbatical Leave',
+                'ON APPROVED MATERNITY LEAVE' => 'On Approved Maternity Leave',
+            ],
+        ];
+    }
+
+    public function getDisplayFormattingMap(): array
+    {
+        return [
+            'Client Deduction Reason' => $this->getOptionsMaps()['deduction_reason'],
+        ];
     }
 
     public function table(Table $table): Table
@@ -49,45 +81,9 @@ class QualityOfExtensionWidget extends BaseKRAWidget
                     ->dateTime('M j, Y g:ia')
                     ->sortable(),
 
-                Tables\Columns\TextColumn::make('average_rating')
+                Tables\Columns\TextColumn::make('raw_score')
                     ->label('Overall Average Rating')
-                    ->numeric(2, '.', ',')
-                    ->state(function (Submission $record): float {
-                        $data = $record->data;
-                        $prefix = 'client';
-
-                        $keys = [];
-                        for ($year = 1; $year <= 4; $year++) {
-                            for ($sem = 1; $sem <= 2; $sem++) {
-                                $keys[] = "{$prefix}_ay{$year}_sem{$sem}";
-                            }
-                        }
-
-                        $ratings = [];
-                        foreach ($keys as $key) {
-                            if (isset($data[$key]) && is_numeric($data[$key])) {
-                                $ratings[] = min((float)$data[$key], 100.0);
-                            } else {
-                                $ratings[] = 0.0;
-                            }
-                        }
-
-                        $sum = array_sum($ratings);
-                        if ($sum === 0.0) return 0.0;
-
-                        $totalSemesters = count($keys);
-                        $deductedSemesters = (int)($data["{$prefix}_deducted_semesters"] ?? 0);
-                        $reason = $data["{$prefix}_deduction_reason"] ?? 'NOT APPLICABLE';
-                        $isValidDeduction = $reason !== 'NOT APPLICABLE' && $reason !== 'SELECT OPTION';
-
-                        $divisor = $totalSemesters;
-                        if ($isValidDeduction && $deductedSemesters > 0 && $deductedSemesters < $totalSemesters) {
-                            $divisor = $totalSemesters - $deductedSemesters;
-                        }
-                        $divisor = max(1, $divisor);
-
-                        return $sum / $divisor;
-                    }),
+                    ->numeric(2, '.', ','),
 
                 ScoreColumn::make('score'),
             ])
@@ -108,6 +104,8 @@ class QualityOfExtensionWidget extends BaseKRAWidget
                     ->after(fn() => $this->mount()),
             ])
             ->actions([
+                ViewSubmissionFilesAction::make(),
+
                 EditAction::make()
                     ->label('Edit Rating Data')
                     ->form($this->getFormSchema())
@@ -179,12 +177,7 @@ class QualityOfExtensionWidget extends BaseKRAWidget
                 ->schema([
                     Select::make($reasonKey)
                         ->label('Reason for Deducting Semesters (Leave)')
-                        ->options([
-                            'NOT APPLICABLE' => 'Not Applicable',
-                            'ON APPROVED STUDY LEAVE' => 'On Approved Study Leave',
-                            'ON APPROVED SABBATICAL LEAVE' => 'On Approved Sabbatical Leave',
-                            'ON APPROVED MATERNITY LEAVE' => 'On Approved Maternity Leave',
-                        ])
+                        ->options($this->getOptionsMaps()['deduction_reason'])
                         ->default('NOT APPLICABLE')
                         ->searchable()
                         ->required()
@@ -199,14 +192,7 @@ class QualityOfExtensionWidget extends BaseKRAWidget
                         ->visible(fn(Get $get): bool => $get($reasonKey) !== 'NOT APPLICABLE'),
                 ])->columns(2),
 
-            FileUpload::make('google_drive_file_id')
-                ->label('Proof Document(s) (Consolidated Evidence Link)')
-                ->multiple()
-                ->reorderable()
-                ->required()
-                ->disk('private')
-                ->directory('proof-documents/kra3-quality-rating')
-                ->columnSpanFull(),
+            $this->getKRAFileUploadComponent(),
         ];
     }
 }

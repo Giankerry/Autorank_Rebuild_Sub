@@ -2,31 +2,33 @@
 
 namespace App\Services;
 
-use Google\Cloud\DocumentAI\V1\Client\DocumentProcessorServiceClient;
+use Google\Cloud\DocumentAI\V1\Client\DocumentProcessorServiceClient; // import for Document AI client
 use Google\Cloud\DocumentAI\V1\ProcessRequest;
 use Google\Cloud\DocumentAI\V1\RawDocument;
 use Illuminate\Support\Facades\Log;
-use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
-use Illuminate\Support\Str;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile; //for handling uploaded files
+use Illuminate\Support\Str; //import for String functions
 
 class DocumentAiService
 {
     protected string $classificationProcessorId;
-    protected string $certificateExtractionProcessorId; // Renamed to clarify
-    protected string $moaExtractionProcessorId;       // NEW: MOA Extractor ID
+    protected string $certificateExtractionProcessorId;
+    protected string $moaExtractionProcessorId;
+    protected string $researchExtractionProcessorId;
     protected string $location;
     protected string $projectId;
     protected string $credentialsPath;
 
     public function __construct()
-    {
+    { //instantiation of the service
         $this->projectId = config('services.google.project_id', env('GOOGLE_CLOUD_PROJECT_ID', ''));
         $this->location = config('services.google.location', env('DOCAI_LOCATION', 'us'));
         $this->classificationProcessorId = env('DOCAI_CLASSIFIER_ID', '');
 
-        // Renaming/Setting Extractor IDs
-        $this->certificateExtractionProcessorId = env('DOCAI_EXTRACTOR_ID', ''); // Assuming DOCAI_EXTRACTOR_ID is for certificates
-        $this->moaExtractionProcessorId = env('DOCAI_MOA_EXTRACTOR_ID', '');   // NEW: For MOAs
+        // Setting Extractor IDs
+        $this->certificateExtractionProcessorId = env('DOCAI_EXTRACTOR_ID', '');
+        $this->moaExtractionProcessorId = env('DOCAI_MOA_EXTRACTOR_ID', '');
+        $this->researchExtractionProcessorId = env('DOCAI_RESEARCH_EXTRACTOR_ID', '');
 
         //project ID validation
         if (empty($this->projectId)) {
@@ -52,7 +54,6 @@ class DocumentAiService
         ]);
     }
 
-    // Standardize entity keys to PascalCase (no change needed here, it handles both MOA and Cert fields)
     protected function toPascalCase(string $string): string
     {
         $snakeCase = Str::snake($string);
@@ -64,9 +65,9 @@ class DocumentAiService
         $content = $file->get();
         $mimeType = $file->getMimeType();
 
-        // Step 1: Classification
+        // Step 1 Classification
         $classificationResult = $this->classifyDocument($content, $mimeType);
-        $documentType = $classificationResult['DocumentType'] ?? null;
+        $documentType = $classificationResult['DocumentType'] ?? null; // This is already uppercase
 
         if (is_null($documentType)) {
             return [];
@@ -74,46 +75,51 @@ class DocumentAiService
 
         $result = ['DocumentType' => $documentType];
 
-        // Determine which extractor to use based on classification
+        // Step 2: Routing - Decide which extractor to use
         $processorIdToUse = null;
         $isCertificate = false;
         $isMoa = false;
+        $isResearch = false;
 
-        if (Str::contains($documentType, ['CERTIFICATE'], true)) {
+        if (Str::contains($documentType, ['CERTIFICATE', 'DIPLOMA'], true)) {
             $processorIdToUse = $this->certificateExtractionProcessorId;
-            $isCertificate = true;
-        } elseif (Str::contains($documentType, ['MOA', 'MEMORANDUM', 'AGREEMENT'], true)) { // Adjust MOA classification key as needed
+            $isCertificate = true; // This flag tells the trait it's a certificate-like doc
+
+        } elseif (Str::contains($documentType, ['MOA'], true)) {
             $processorIdToUse = $this->moaExtractionProcessorId;
             $isMoa = true;
+        } elseif (Str::contains($documentType, ['RESEARCH', 'THESIS'], true)) {
+            $processorIdToUse = $this->researchExtractionProcessorId;
+            $isResearch = true;
         }
 
-        // Only proceed to extraction if a valid processor was selected
+        // Step 3: Extraction (if a valid route was found)
         if ($processorIdToUse) {
             $extractedEntities = $this->extractEntities($content, $mimeType, $processorIdToUse);
-
             $result = array_merge($result, $extractedEntities);
 
-            // Set flags for convenience in widgets
+            // Set flags for the trait to read
             $result['IsCertificate'] = $isCertificate;
-            $result['IsMoa'] = $isMoa; // NEW FLAG
-
+            $result['IsMoa'] = $isMoa;
+            $result['IsResearch'] = $isResearch;
         } else {
+            // No valid extractor route found
             $result['IsCertificate'] = false;
             $result['IsMoa'] = false;
+            $result['IsResearch'] = false;
         }
 
         return $result;
     }
 
-    // document classification (no change needed here)
+    // document classification method
     protected function classifyDocument(string $content, string $mimeType): array
     {
-        // ... (classification logic remains the same)
-        if (empty($this->classificationProcessorId)) {
+        if (empty($this->classificationProcessorId)) { //skip if no classifier is set
             Log::error("Missing DOCAI_CLASSIFIER_ID. Skipping classification.");
             return [];
         }
-
+        // proceed with classification
         $name = "projects/{$this->projectId}/locations/{$this->location}/processors/{$this->classificationProcessorId}";
         $client = $this->getClient();
 
@@ -136,7 +142,7 @@ class DocumentAiService
             }
 
             if (!empty($documentType)) {
-                $classificationResult['DocumentType'] = Str::upper($documentType);
+                $classificationResult['DocumentType'] = Str::upper($documentType); // Ensures uppercase
             }
 
             Log::info('Classification result', ['DocumentType' => $documentType]);
@@ -149,17 +155,17 @@ class DocumentAiService
         }
     }
 
-    // document extraction - modified to accept the processor ID to use
+    // document extraction based on type
     protected function extractEntities(string $content, string $mimeType, string $processorId): array
     {
-        if (empty($processorId)) {
+        if (empty($processorId)) { //skip if no extractor is set
             Log::error("Missing required Extractor ID. Skipping extraction.");
             return [];
         }
 
         $name = "projects/{$this->projectId}/locations/{$this->location}/processors/{$processorId}";
         $client = $this->getClient();
-
+        // proceed with extraction
         try {
             $request = (new ProcessRequest())
                 ->setName($name)

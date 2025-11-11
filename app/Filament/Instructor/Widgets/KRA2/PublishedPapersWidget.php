@@ -4,7 +4,6 @@ namespace App\Filament\Instructor\Widgets\KRA2;
 
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -22,6 +21,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use App\Forms\Components\TrimmedIntegerInput;
 use App\Tables\Columns\ScoreColumn;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
 
 // NEW IMPORTS for Autofill
 use App\Filament\Traits\AutofillDocument;
@@ -30,10 +31,12 @@ use Filament\Forms\Components\Actions\Action;
 use Filament\Forms\Components\Grid;
 use Illuminate\Support\Facades\Log;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Filament\Forms\Components\FileUpload; // Keep this import for the trait
 
 class PublishedPapersWidget extends BaseKRAWidget
 {
     use AutofillDocument;
+    use HandlesKRAFileUploads;
 
     protected int | string | array $columnSpan = 'full';
 
@@ -42,6 +45,11 @@ class PublishedPapersWidget extends BaseKRAWidget
     protected static string $view = 'filament.instructor.widgets.k-r-a2.published-papers-widget';
 
     public ?string $activeTable = 'sole_authorship';
+
+    protected function getGoogleDriveFolderPath(): array
+    {
+        return [$this->getKACategory(), 'A. Published Papers'];
+    }
 
     public function updatedActiveTable(): void
     {
@@ -59,7 +67,6 @@ class PublishedPapersWidget extends BaseKRAWidget
             ? 'research-sole-authorship'
             : 'research-co-authorship';
     }
-
     protected function mapCertificateDataToForm(Set $set, Get $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
     {
         Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Certificate. This form requires a Research Paper or Thesis.')->warning()->send();
@@ -73,9 +80,7 @@ class PublishedPapersWidget extends BaseKRAWidget
     protected function mapResearchDataToForm(Set $set, Get $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
     {
         $set('data.title', $title ?? $get('data.title'));
-
         $set('data.journal_name', $publisher ?? $get('data.journal_name'));
-
         $set('data.date_published', $datePublished ?? $get('data.date_published'));
 
         if ($authorList) {
@@ -103,7 +108,7 @@ class PublishedPapersWidget extends BaseKRAWidget
                 Tables\Columns\TextColumn::make('data.title')->label('Title')->wrap()->toggleable(),
                 Tables\Columns\TextColumn::make('data.output_type')
                     ->label('Type')
-                    ->formatStateUsing(fn(?string $state): string => Str::title($state))
+                    ->formatStateUsing(fn(?string $state): string => Str::of($state)->replace('_', ' ')->title())
                     ->badge(),
                 Tables\Columns\TextColumn::make('data.journal_name')->label('Journal/Publisher')->wrap()->toggleable(),
                 Tables\Columns\TextColumn::make('data.date_published')->label('Date Published')->date()->toggleable(),
@@ -145,6 +150,7 @@ class PublishedPapersWidget extends BaseKRAWidget
     protected function getTableActions(): array
     {
         return [
+            ViewSubmissionFilesAction::make(),
             Tables\Actions\EditAction::make()
                 ->form($this->getFormSchema())
                 ->modalHeading('Edit Research/Creative Output')
@@ -215,26 +221,13 @@ class PublishedPapersWidget extends BaseKRAWidget
                 ->required();
         }
 
-        //Grid for File upload and Autofill Button
         $schema[] = Grid::make(3)
             ->columnSpanFull()
             ->schema([
-                FileUpload::make('google_drive_file_id')
-                    ->label('Proof Document(s)')
-                    ->multiple()
-                    ->reorderable()
-                    ->required()
-                    ->disk('private')
-                    ->directory(fn(): string => $this->activeTable === 'sole_authorship'
-                        ? 'proof-documents/kra2-research-sole'
-                        : 'proof-documents/kra2-research-co')
-                    ->acceptedFileTypes(['application/pdf', 'image/*'])
-                    ->reactive()
-                    ->columnSpan(2),
+                $this->getKRAFileUploadComponent()->columnSpan(2),
 
                 $this->getAutofillAction(),
             ]);
-
         return $schema;
     }
 }

@@ -55,6 +55,14 @@ abstract class BaseKRAWidget extends BaseWidget implements HasActions
         }
     }
 
+    /**
+     * Requires all child widgets to define their own nested
+     * folder structure for Google Drive.
+     *
+     * @return array
+     */
+    abstract protected function getGoogleDriveFolderPath(): array;
+
     public function createApplicationAction(): Action
     {
         return Action::make('createApplication')
@@ -91,10 +99,24 @@ abstract class BaseKRAWidget extends BaseWidget implements HasActions
     }
 
     /**
+     * Controls whether this widget allows multiple submissions for a single type.
+     * By default, it's true (multiple submissions allowed).
+     * Override this in child widgets to *enforce* a single submission.
+     */
+    protected function isMultipleSubmissionAllowed(): bool
+    {
+        return true;
+    }
+
+    /**
      * Helper to check if a submission of the active type already exists.
      */
     protected function submissionExistsForCurrentType(): bool
     {
+        if ($this->isMultipleSubmissionAllowed()) {
+            return false;
+        }
+
         $activeApplicationId = $this->selectedApplicationId;
 
         if (!$activeApplicationId) {
@@ -134,5 +156,24 @@ abstract class BaseKRAWidget extends BaseWidget implements HasActions
             }
             return $record->application?->status === 'draft';
         };
+    }
+
+    /**
+     * Provides a map of formatting rules for the data.
+     * Child widgets will override this.
+     *
+     * The key MUST be the *final display key* (e.g., "Material Type").
+     * The value is either an array (for options) or a string (for date formats).
+     *
+     * @return array e.g., [
+     * 'Material Type' => [
+     * 'raw_key' => 'Display Value',
+     * ],
+     * 'Date Published' => 'm/d/Y',
+     * ]
+     */
+    public function getDisplayFormattingMap(): array
+    {
+        return [];
     }
 }

@@ -139,13 +139,11 @@ class ScoringService
             (int)($data['student_deducted_semesters'] ?? 0),
             $data['student_deduction_reason'] ?? 'NOT APPLICABLE'
         );
-        $cappedAverage = min($average, 100.0); // Cap average at 100
+        $cappedAverage = min($average, 100.0);
 
-        $rawScore = $average * ($this->getCap('kra_1_a_cap') * 0.60) / 100.0;
-        $score = $cappedAverage * ($this->getCap('kra_1_a_cap') * 0.60) / 100.0;
+        $rawScore = $average;
+        $score = $cappedAverage * ((float)$this->getCap('kra_1_a_cap') * 0.60) / 100.0;
 
-        // Note: This item has special capping logic (average vs raw)
-        // so we don't use the universal applyCap helper
         return ['raw' => $rawScore, 'score' => $score];
     }
 
@@ -157,12 +155,11 @@ class ScoringService
             (int)($data['supervisor_deducted_semesters'] ?? 0),
             $data['supervisor_deduction_reason'] ?? 'NOT APPLICABLE'
         );
-        $cappedAverage = min($average, 100.0); // Cap average at 100
+        $cappedAverage = min($average, 100.0);
 
-        $rawScore = $average * ($this->getCap('kra_1_a_cap') * 0.40) / 100.0;
-        $score = $cappedAverage * ($this->getCap('kra_1_a_cap') * 0.40) / 100.0;
+        $rawScore = $average;
+        $score = $cappedAverage * ((float)$this->getCap('kra_1_a_cap') * 0.40) / 100.0;
 
-        // Note: This item has special capping logic (average vs raw)
         return ['raw' => $rawScore, 'score' => $score];
     }
 
@@ -214,7 +211,7 @@ class ScoringService
             'dissertation' => 10.0,
             default => 0.0,
         };
-        $rawScore = $totalCount * $multiplier;
+        $rawScore = (float)$totalCount * $multiplier;
         return $this->applyCap($rawScore, $type);
     }
 
@@ -231,7 +228,7 @@ class ScoringService
             'dissertation' => 2.0,
             default => 0.0,
         };
-        $rawScore = $totalCount * $multiplier;
+        $rawScore = (float)$totalCount * $multiplier;
         return $this->applyCap($rawScore, $type);
     }
 
@@ -290,8 +287,7 @@ class ScoringService
         $citationCount = (int)($data['citation_count'] ?? 0);
         if ($citationCount <= 0) return ['raw' => 0.0, 'score' => 0.0];
 
-        $rawScore = $citationCount * 5.0;
-        // Removed old cap logic, applyCap handles it
+        $rawScore = (float)$citationCount * 5.0;
         return $this->applyCap($rawScore, $type);
     }
 
@@ -300,8 +296,7 @@ class ScoringService
         $citationCount = (int)($data['citation_count'] ?? 0);
         if ($citationCount <= 0) return ['raw' => 0.0, 'score' => 0.0];
 
-        $rawScore = $citationCount * 10.0;
-        // Removed old cap logic, applyCap handles it
+        $rawScore = (float)$citationCount * 10.0;
         return $this->applyCap($rawScore, $type);
     }
 
@@ -365,7 +360,6 @@ class ScoringService
         if (empty($datePatented) || empty($dateCommercialized)) return ['raw' => 0.0, 'score' => 0.0];
 
         $rawScore = 5.0;
-        // Removed old cap logic, applyCap handles it
         return $this->applyCap($rawScore, $type);
     }
 
@@ -376,7 +370,6 @@ class ScoringService
         if (empty($datePatented) || empty($dateCommercialized)) return ['raw' => 0.0, 'score' => 0.0];
 
         $rawScore = 10.0;
-        // Removed old cap logic, applyCap handles it
         return $this->applyCap($rawScore, $type);
     }
 
@@ -670,10 +663,10 @@ class ScoringService
         }
 
         $rawScore = match ($service) {
-            'writer_occasional_newspaper' => (!empty($engagementCount) && $engagementCount > 0) ? ($engagementCount * 2.0) : 0.0,
+            'writer_occasional_newspaper' => (!empty($engagementCount) && $engagementCount > 0) ? ((float)$engagementCount * 2.0) : 0.0,
             'writer_regular_newspaper'    => (!empty($mediaName)) ? 10.0 : 0.0,
             'host_tv_radio_program'     => (!empty($mediaName)) ? 10.0 : 0.0,
-            'guest_technical_expert'      => (!empty($engagementCount) && $engagementCount > 0) ? ($engagementCount * 1.0) : 0.0,
+            'guest_technical_expert'      => (!empty($engagementCount) && $engagementCount > 0) ? ((float)$engagementCount * 1.0) : 0.0,
             default => 0.0,
         };
         return $this->applyCap($rawScore, $type);
@@ -699,8 +692,8 @@ class ScoringService
         }
 
         $rawScore = match ($scope) {
-            'local' => 2.0 * $totalHours,
-            'international' => 3.0 * $totalHours,
+            'local' => 2.0 * (float)$totalHours,
+            'international' => 3.0 * (float)$totalHours,
             default => 0.0,
         };
         return $this->applyCap($rawScore, $type);
@@ -743,10 +736,9 @@ class ScoringService
         );
 
         $cappedAverage = min($average, 100.0);
-        $rawScore = $average * $this->getCap('kra_3_c_cap') / 100.0;
+        $rawScore = $average;
         $score = $cappedAverage * $this->getCap('kra_3_c_cap') / 100.0;
 
-        // Note: This item has special capping logic (average vs raw)
         return ['raw' => $rawScore, 'score' => $score];
     }
 

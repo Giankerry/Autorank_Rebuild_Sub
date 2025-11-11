@@ -5,7 +5,6 @@ namespace App\Filament\Instructor\Widgets\KRA4;
 use App\Models\Submission;
 use App\Services\DocumentAiService;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Get;
@@ -27,16 +26,25 @@ use Filament\Forms\Components\Actions\Action;
 use Filament\Forms\Components\Grid;
 use Illuminate\Support\Facades\Log;
 use App\Filament\Traits\AutofillDocument;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
+use Filament\Forms\Components\FileUpload; 
 
 class AwardsRecognitionWidget extends BaseKRAWidget
 {
     use AutofillDocument;
+    use HandlesKRAFileUploads;
 
     protected int|string|array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
 
     protected static string $view = 'filament.instructor.widgets.k-r-a4.awards-recognition-widget';
+
+    protected function getGoogleDriveFolderPath(): array
+    {
+        return [$this->getKACategory(), 'C: Awards and Recognition'];
+    }
 
     protected function getKACategory(): string
     {
@@ -48,6 +56,25 @@ class AwardsRecognitionWidget extends BaseKRAWidget
         return 'profdev-award-recognition';
     }
 
+    protected function getOptionsMaps(): array
+    {
+        return [
+            'scope' => [
+                'institutional' => 'Institutional',
+                'local' => 'Local',
+                'regional' => 'Regional',
+            ],
+        ];
+    }
+
+    public function getDisplayFormattingMap(): array
+    {
+        return [
+            'Scope' => $this->getOptionsMaps()['scope'],
+            'Date Given' => 'm/d/Y',
+        ];
+    }
+
     public function table(Table $table): Table
     {
         return $table
@@ -57,10 +84,10 @@ class AwardsRecognitionWidget extends BaseKRAWidget
                 Tables\Columns\TextColumn::make('data.name')->label('Name of the Award')->wrap(),
                 Tables\Columns\TextColumn::make('data.scope')
                     ->label('Scope')
-                    ->formatStateUsing(fn(?string $state): string => Str::title($state))
+                    ->formatStateUsing(fn(?string $state): string => $this->getOptionsMaps()['scope'][$state] ?? Str::title($state ?? ''))
                     ->badge(),
                 Tables\Columns\TextColumn::make('data.awarding_body')->label('Award-Giving Body'),
-                Tables\Columns\TextColumn::make('data.date_given')->label('Date Given')->date(),
+                Tables\Columns\TextColumn::make('data.date_given')->label('Date Given')->date('m/d/Y'),
                 Tables\Columns\TextColumn::make('data.venue')->label('Venue of Ceremony'),
                 ScoreColumn::make('score'),
             ])
@@ -77,11 +104,11 @@ class AwardsRecognitionWidget extends BaseKRAWidget
                     })
                     ->modalHeading('Submit New Award/Recognition')
                     ->modalWidth('3xl')
-                    ->hidden(fn(): bool => $this->submissionExistsForCurrentType())
                     ->after(fn() => $this->mount()),
             ])
             ->actions([
-                EditAction::make()
+                ViewSubmissionFilesAction::make(),
+                Tables\Actions\EditAction::make()
                     ->form($this->getFormSchema())
                     ->modalHeading('Edit Award/Recognition')
                     ->modalWidth('3xl')
@@ -112,13 +139,11 @@ class AwardsRecognitionWidget extends BaseKRAWidget
 
     protected function mapMoaDataToForm(Set $set, Get $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
     {
-        // This widget only handles Certificate data.
         Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Memorandum of Agreement (MOA). This form requires a Certificate or Award Document.')->warning()->send();
     }
 
     protected function mapResearchDataToForm(Set $set, Get $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
     {
-        //for cert data
         Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Research Paper/Thesis. This form requires a Certificate or Award Document.')->warning()->send();
     }
 
@@ -135,11 +160,7 @@ class AwardsRecognitionWidget extends BaseKRAWidget
 
             Select::make('data.scope')
                 ->label('Scope of the Award')
-                ->options([
-                    'institutional' => 'Institutional',
-                    'local' => 'Local',
-                    'regional' => 'Regional',
-                ])
+                ->options($this->getOptionsMaps()['scope'])
                 ->searchable()
                 ->required(),
 
@@ -166,21 +187,10 @@ class AwardsRecognitionWidget extends BaseKRAWidget
             Grid::make(3)
                 ->columnSpanFull()
                 ->schema([
-                    // Column 1 & 2: File Upload 
-                    FileUpload::make('google_drive_file_id')
-                        ->label('Proof Document(s) (e.g., Certificate, Plaque Photo)')
-                        ->multiple()
-                        ->reorderable()
-                        ->required()
-                        ->disk('private')
-                        ->directory('proof-documents/kra4-awards')
-                        ->acceptedFileTypes(['application/pdf', 'image/*'])
-                        ->reactive()
-                        ->columnSpan(2),
-
-                    //call autofill function
+                    $this->getKRAFileUploadComponent()->columnSpan(2),
                     $this->getAutofillAction(),
                 ]),
+
         ];
     }
 }

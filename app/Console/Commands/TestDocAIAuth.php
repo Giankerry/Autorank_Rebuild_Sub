@@ -16,7 +16,6 @@ class TestDocAIAuth extends Command
         $this->info('Attempting to initialize Google Document AI client...');
         
         try {
-            // Correct class from the Google Cloud Document AI v2.5 SDK:
             $client = new DocumentProcessorServiceClient();
             $client->close();
             

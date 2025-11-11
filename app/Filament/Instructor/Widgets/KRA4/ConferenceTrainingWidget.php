@@ -4,7 +4,6 @@ namespace App\Filament\Instructor\Widgets\KRA4;
 
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -18,8 +17,8 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use App\Tables\Columns\ScoreColumn;
-
-// ADDED IMPORTS FOR DOC AI AND FILAMENT ACTIONS
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
 use App\Services\DocumentAiService;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
@@ -30,16 +29,23 @@ use Filament\Forms\Components\Actions\Action;
 use Filament\Forms\Components\Grid;
 use Illuminate\Support\Facades\Log;
 use App\Filament\Traits\AutofillDocument;
+use Filament\Forms\Components\FileUpload; 
 
 class ConferenceTrainingWidget extends BaseKRAWidget
 {
     use AutofillDocument;
+    use HandlesKRAFileUploads;
 
     protected int | string | array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
 
     protected static string $view = 'filament.instructor.widgets.k-r-a4.conference-training-widget';
+
+    protected function getGoogleDriveFolderPath(): array
+    {
+        return [$this->getKACategory(), 'B. Continuing Development'];
+    }
 
     protected function getKACategory(): string
     {
@@ -51,6 +57,24 @@ class ConferenceTrainingWidget extends BaseKRAWidget
         return 'profdev-conference-training';
     }
 
+    protected function getOptionsMaps(): array
+    {
+        return [
+            'scope' => [
+                'local' => 'Local',
+                'international' => 'International',
+            ],
+        ];
+    }
+
+    public function getDisplayFormattingMap(): array
+    {
+        return [
+            'Scope' => $this->getOptionsMaps()['scope'],
+            'Date' => 'm/d/Y',
+        ];
+    }
+
     public function table(Table $table): Table
     {
         return $table
@@ -60,11 +84,11 @@ class ConferenceTrainingWidget extends BaseKRAWidget
                 Tables\Columns\TextColumn::make('data.name')->label('Name of Conference/Training')->wrap(),
                 Tables\Columns\TextColumn::make('data.scope')
                     ->label('Scope')
-                    ->formatStateUsing(fn(?string $state): string => Str::title($state))
+                    ->formatStateUsing(fn(?string $state): string => $this->getOptionsMaps()['scope'][$state] ?? Str::title($state ?? ''))
                     ->badge(),
                 Tables\Columns\TextColumn::make('data.organizer')->label('Organizer'),
-                Tables\Columns\TextColumn::make('data.date_activity')->label('Date of Activity')->date(),
-                Tables\Columns\TextColumn::make('data.venue')->label('Venue of Activity'),
+                Tables\Columns\TextColumn::make('data.date_activity')->label('Date of Activity')->date('m/d/Y'),
+                Tables\Columns\TextColumn::make('data.venue')->label('Venue of Activity'), 
                 ScoreColumn::make('score'),
             ])
             ->headerActions($this->getTableHeaderActions())
@@ -102,6 +126,7 @@ class ConferenceTrainingWidget extends BaseKRAWidget
     protected function getTableActions(): array
     {
         return [
+            ViewSubmissionFilesAction::make(),
             Tables\Actions\EditAction::make()
                 ->form($this->getFormSchema())
                 ->modalHeading('Edit Conference/Training Participation')
@@ -141,32 +166,31 @@ class ConferenceTrainingWidget extends BaseKRAWidget
 
             Select::make('data.scope')
                 ->label('Scope')
-                ->options([
-                    'local' => 'Local',
-                    'international' => 'International',
-                ])->searchable()->required(),
-
+                ->options($this->getOptionsMaps()['scope'])
+                ->searchable()
+                ->required(),
             TextInput::make('data.organizer')
                 ->label('Organizer/Sponsoring Body')
                 ->required()->maxLength(255)->live(),
 
             DatePicker::make('data.date_activity')
                 ->label('Date of Activity')
-                ->native(false)->displayFormat('m/d/Y')->required()->maxDate(now())->live(),
+                ->native(false)
+                ->displayFormat('m/d/Y')
+                ->required()
+                ->maxDate(now())
+                ->live(), 
 
             TextInput::make('data.venue')
                 ->label('Venue of Activity')
-                ->maxLength(255)->columnSpanFull()->live(),
+                ->maxLength(255)
+                ->columnSpanFull()
+                ->live(),
 
             Grid::make(3)
                 ->columnSpanFull()
                 ->schema([
-                    // Column 1 & 2: File Upload 
-                    FileUpload::make('google_drive_file_id')
-                        ->label('Proof Document(s) (e.g., Certificate of Participation)')
-                        ->multiple()->reorderable()->required()
-                        ->disk('private')->directory('proof-documents/kra4-training')
-                        ->acceptedFileTypes(['application/pdf', 'image/*'])->reactive()->columnSpan(2),
+                    $this->getKRAFileUploadComponent()->columnSpan(2),
                     $this->getAutofillAction(),
                 ]),
         ];
