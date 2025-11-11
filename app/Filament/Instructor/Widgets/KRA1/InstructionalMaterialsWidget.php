@@ -4,7 +4,6 @@ namespace App\Filament\Instructor\Widgets\KRA1;
 
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -20,9 +19,13 @@ use Filament\Forms\Get;
 use App\Forms\Components\TrimmedIntegerInput;
 use App\Tables\Columns\ScoreColumn;
 use App\Filament\Instructor\Widgets\BaseKRAWidget;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
 
 class InstructionalMaterialsWidget extends BaseKRAWidget
 {
+    use HandlesKRAFileUploads;
+
     protected int|string|array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
@@ -34,6 +37,22 @@ class InstructionalMaterialsWidget extends BaseKRAWidget
     public function updatedActiveTable(): void
     {
         $this->resetTable();
+    }
+
+    protected function getGoogleDriveFolderPath(): array
+    {
+        $kra = $this->getKACategory();
+
+        switch ($this->activeTable) {
+            case 'sole_authorship':
+                return [$kra, 'B: Instructional Materials', 'Sole Authorship'];
+            case 'co_authorship':
+                return [$kra, 'B: Instructional Materials', 'Co-Authorship'];
+            case 'academic_program':
+                return [$kra, 'B: Academic Program Development'];
+            default:
+                return [$kra, Str::slug($this->getActiveSubmissionType())];
+        }
     }
 
     protected function getKACategory(): string
@@ -49,6 +68,51 @@ class InstructionalMaterialsWidget extends BaseKRAWidget
             'academic_program' => 'im-academic-program',
         ];
         return $typeMap[$this->activeTable] ?? 'im-sole-authorship';
+    }
+
+    protected function getOptionsMaps(): array
+    {
+        $currentYear = (int) date('Y');
+        $academicYears = [];
+        for ($i = 0; $i < 4; $i++) {
+            $startYear = $currentYear - $i;
+            $endYear = $startYear + 1;
+            $academicYears["{$startYear}-{$endYear}"] = "{$startYear}-{$endYear}";
+        }
+
+        return [
+            'material_type' => [
+                'textbook' => 'Textbook',
+                'textbook_chapter' => 'Textbook Chapter',
+                'manual_module' => 'Manual/Module/Workbook',
+                'multimedia_material' => 'Multimedia Teaching Material',
+                'testing_material' => 'Testing Material',
+            ],
+            'program_type' => [
+                'New Program' => 'New Program',
+                'Revised Program' => 'Revised Program',
+            ],
+            'academic_year_implemented' => $academicYears,
+            'role' => [
+                'Lead' => 'Lead',
+                'Contributor' => 'Contributor',
+            ],
+        ];
+    }
+
+    public function getDisplayFormattingMap(): array
+    {
+        $maps = $this->getOptionsMaps();
+
+        return [
+            'Material Type' => $maps['material_type'],
+            'Program Type' => $maps['program_type'],
+            'Academic Year Implemented' => $maps['academic_year_implemented'],
+            'Role' => $maps['role'],
+
+            'Date Published' => 'm/d/Y',
+            'Date Approved' => 'm/d/Y',
+        ];
     }
 
     public function table(Table $table): Table
@@ -81,32 +145,39 @@ class InstructionalMaterialsWidget extends BaseKRAWidget
 
     protected function getTableColumns(): array
     {
+        $maps = $this->getOptionsMaps();
+
         return match ($this->activeTable) {
             'sole_authorship' => [
                 Tables\Columns\TextColumn::make('data.title')->label('Title')->wrap(),
                 Tables\Columns\TextColumn::make('data.material_type')
                     ->label('Material Type')
-                    ->formatStateUsing(fn(?string $state) => Str::of($state)->replace('_', ' ')->title())
+                    ->formatStateUsing(fn(?string $state) => $maps['material_type'][$state] ?? $state)
                     ->badge(),
-                Tables\Columns\TextColumn::make('data.date_published')->label('Date Published')->date(),
-                Tables\Columns\TextColumn::make('data.date_approved')->label('Date Approved')->date(),
+                Tables\Columns\TextColumn::make('data.date_published')->label('Date Published')->date('m/d/Y'),
+                Tables\Columns\TextColumn::make('data.date_approved')->label('Date Approved')->date('m/d/Y'),
                 ScoreColumn::make('score'),
             ],
             'co_authorship' => [
                 Tables\Columns\TextColumn::make('data.title')->label('Title')->wrap(),
                 Tables\Columns\TextColumn::make('data.material_type')
                     ->label('Material Type')
-                    ->formatStateUsing(fn(?string $state) => Str::of($state)->replace('_', ' ')->title())
+                    ->formatStateUsing(fn(?string $state) => $maps['material_type'][$state] ?? $state)
                     ->badge(),
-                Tables\Columns\TextColumn::make('data.date_published')->label('Date Published')->date(),
-                Tables\Columns\TextColumn::make('data.date_approved')->label('Date Approved')->date(),
+                Tables\Columns\TextColumn::make('data.date_published')->label('Date Published')->date('m/d/Y'),
+                Tables\Columns\TextColumn::make('data.date_approved')->label('Date Approved')->date('m/d/Y'),
                 Tables\Columns\TextColumn::make('data.contribution_percentage')->label('% Contribution')->suffix('%'),
                 ScoreColumn::make('score'),
             ],
             'academic_program' => [
                 Tables\Columns\TextColumn::make('data.program_name')->label('Name of Program')->wrap(),
-                Tables\Columns\TextColumn::make('data.program_type')->label('Type of Program')->badge(),
-                Tables\Columns\TextColumn::make('data.role')->label('Role'),
+                Tables\Columns\TextColumn::make('data.program_type')
+                    ->label('Type of Program')
+                    ->formatStateUsing(fn(?string $state) => $maps['program_type'][$state] ?? $state)
+                    ->badge(),
+                Tables\Columns\TextColumn::make('data.role')
+                    ->label('Role')
+                    ->formatStateUsing(fn(?string $state) => $maps['role'][$state] ?? $state),
                 Tables\Columns\TextColumn::make('data.academic_year_implemented')->label('AY Implemented'),
                 ScoreColumn::make('score'),
             ],
@@ -129,7 +200,6 @@ class InstructionalMaterialsWidget extends BaseKRAWidget
                 })
                 ->modalHeading(fn() => 'Submit New ' . Str::of($this->activeTable)->replace('_', ' ')->title())
                 ->modalWidth('3xl')
-                ->hidden(fn(): bool => $this->submissionExistsForCurrentType())
                 ->after(fn() => $this->mount()),
         ];
     }
@@ -137,6 +207,7 @@ class InstructionalMaterialsWidget extends BaseKRAWidget
     protected function getTableActions(): array
     {
         return [
+            ViewSubmissionFilesAction::make(),
             EditAction::make()
                 ->form($this->getFormSchema())
                 ->modalHeading(fn() => 'Edit ' . Str::of($this->activeTable)->replace('_', ' ')->title())
@@ -151,6 +222,7 @@ class InstructionalMaterialsWidget extends BaseKRAWidget
     protected function getFormSchema(): array
     {
         $schema = [];
+        $optionsMaps = $this->getOptionsMaps();
 
         switch ($this->activeTable) {
             case 'sole_authorship':
@@ -163,13 +235,7 @@ class InstructionalMaterialsWidget extends BaseKRAWidget
                         ->columnSpanFull(),
                     Select::make('data.material_type')
                         ->label('Type of Instructional Material')
-                        ->options([
-                            'textbook' => 'Textbook',
-                            'textbook_chapter' => 'Textbook Chapter',
-                            'manual_module' => 'Manual/Module/Workbook',
-                            'multimedia_material' => 'Multimedia Teaching Material',
-                            'testing_material' => 'Testing Material',
-                        ])
+                        ->options($optionsMaps['material_type'])
                         ->searchable()
                         ->required(),
                     TextInput::make('data.reviewer')->label('Reviewer or Its Equivalent')->maxLength(150)->required(),
@@ -200,15 +266,6 @@ class InstructionalMaterialsWidget extends BaseKRAWidget
                 break;
 
             case 'academic_program':
-                $currentYear = (int) date('Y');
-                $academicYears = [];
-
-                for ($i = 0; $i < 4; $i++) {
-                    $startYear = $currentYear - $i;
-                    $endYear = $startYear + 1;
-                    $academicYears["{$startYear}-{$endYear}"] = "{$startYear}-{$endYear}";
-                }
-
                 $schema = [
                     TextInput::make('data.program_name')
                         ->label('Name of Academic Degree Program (provide complete name)')
@@ -217,10 +274,7 @@ class InstructionalMaterialsWidget extends BaseKRAWidget
                         ->columnSpanFull(),
                     Select::make('data.program_type')
                         ->label('Type of Program')
-                        ->options([
-                            'New Program' => 'New Program',
-                            'Revised Program' => 'Revised Program',
-                        ])
+                        ->options($optionsMaps['program_type'])
                         ->searchable()
                         ->required(),
                     TextInput::make('data.board_approval')
@@ -229,43 +283,19 @@ class InstructionalMaterialsWidget extends BaseKRAWidget
                         ->required(),
                     Select::make('data.academic_year_implemented')
                         ->label('Academic Year Implemented')
-                        ->options($academicYears)
-                        ->rule('in:' . implode(',', array_keys($academicYears)))
+                        ->options($optionsMaps['academic_year_implemented'])
+                        ->rule('in:' . implode(',', array_keys($optionsMaps['academic_year_implemented'])))
                         ->required(),
                     Select::make('data.role')
                         ->label('Role')
-                        ->options([
-                            'Lead' => 'Lead',
-                            'Contributor' => 'Contributor',
-                        ])
+                        ->options($optionsMaps['role'])
                         ->searchable()
                         ->required(),
                 ];
                 break;
         }
 
-        $schema[] = FileUpload::make('google_drive_file_id')
-            ->label('Proof Document(s)')
-            ->reorderable()
-            ->required()
-            ->disk('private')
-            ->directory(fn() => 'proof-documents/kra1-im/' . $this->activeTable)
-            ->maxFiles(5)
-            ->maxSize(10240)
-            ->acceptedFileTypes([
-                'application/pdf',
-                'image/jpeg',
-                'image/png',
-                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'application/msword',
-                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                'application/vnd.ms-excel',
-                'application/zip',
-            ])
-            ->helperText('Upload up to 5 proof documents (PDF, DOCX, XLSX, JPG, PNG, or ZIP, max 10MB each).')
-            ->preserveFilenames()
-            ->visibility('private')
-            ->columnSpanFull();
+        $schema[] = $this->getKRAFileUploadComponent();
 
         return $schema;
     }

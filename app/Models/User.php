@@ -54,6 +54,7 @@ class User extends Authenticatable implements FilamentUser
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'rank_assigned_at' => 'datetime',
+            'google_token' => 'array',
         ];
     }
 

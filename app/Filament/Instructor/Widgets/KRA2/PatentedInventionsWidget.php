@@ -4,7 +4,6 @@ namespace App\Filament\Instructor\Widgets\KRA2;
 
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -19,9 +18,13 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use App\Forms\Components\TrimmedIntegerInput;
 use App\Tables\Columns\ScoreColumn;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
 
 class PatentedInventionsWidget extends BaseKRAWidget
 {
+    use HandlesKRAFileUploads;
+
     protected int | string | array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
@@ -33,6 +36,29 @@ class PatentedInventionsWidget extends BaseKRAWidget
     public function updatedActiveTable(): void
     {
         $this->resetTable();
+    }
+
+    protected function getGoogleDriveFolderPath(): array
+    {
+        $kra = $this->getKACategory();
+        $baseFolder = 'B: Patented Inventions';
+
+        switch ($this->activeTable) {
+            case 'invention_patent_sole':
+                return [$kra, $baseFolder, 'Invention Patent - Sole'];
+            case 'invention_patent_co':
+                return [$kra, $baseFolder, 'Invention Patent - Co-Inventor'];
+            case 'utility_design_sole':
+                return [$kra, $baseFolder, 'Utility-Design - Sole'];
+            case 'utility_design_co':
+                return [$kra, $baseFolder, 'Utility-Design - Co-Inventor'];
+            case 'commercialized_local':
+                return [$kra, $baseFolder, 'Commercialized - Local'];
+            case 'commercialized_intl':
+                return [$kra, $baseFolder, 'Commercialized - International'];
+            default:
+                return [$kra, $baseFolder, Str::slug($this->activeTable)];
+        }
     }
 
     protected function getKACategory(): string
@@ -51,6 +77,35 @@ class PatentedInventionsWidget extends BaseKRAWidget
             'commercialized_intl' => 'invention-commercialized-international',
             default => 'invention-patent-sole',
         };
+    }
+
+    protected function getOptionsMaps(): array
+    {
+        return [
+            'patent_stage' => [
+                'accepted' => 'Accepted',
+                'published' => 'Published',
+                'granted' => 'Granted'
+            ],
+            'patent_type' => [
+                'utility_model' => 'Utility Model',
+                'industrial_design' => 'Industrial Design'
+            ],
+        ];
+    }
+
+    public function getDisplayFormattingMap(): array
+    {
+        $maps = $this->getOptionsMaps();
+
+        return [
+            'Patent Stage' => $maps['patent_stage'],
+            'Patent Type' => $maps['patent_type'],
+            'Application Date' => 'm/d/Y',
+            'Date Granted' => 'm/d/Y',
+            'Date Patented' => 'm/d/Y',
+            'Date Commercialized' => 'm/d/Y',
+        ];
     }
 
     public function table(Table $table): Table
@@ -86,26 +141,27 @@ class PatentedInventionsWidget extends BaseKRAWidget
     protected function getTableColumns(): array
     {
         $columns = [];
+        $maps = $this->getOptionsMaps();
 
         $columns[] = Tables\Columns\TextColumn::make('data.name')->label('Name')->wrap();
 
         switch ($this->activeTable) {
             case 'invention_patent_sole':
             case 'invention_patent_co':
-                $columns[] = Tables\Columns\TextColumn::make('data.application_date')->label('Application Date')->date();
-                $columns[] = Tables\Columns\TextColumn::make('data.patent_stage')->label('Patent Stage')->formatStateUsing(fn(?string $state): string => Str::title($state ?? ''))->badge();
+                $columns[] = Tables\Columns\TextColumn::make('data.application_date')->label('Application Date')->date('m/d/Y');
+                $columns[] = Tables\Columns\TextColumn::make('data.patent_stage')->label('Patent Stage')->formatStateUsing(fn(?string $state): string => $maps['patent_stage'][$state] ?? Str::title($state ?? ''))->badge();
                 break;
             case 'utility_design_sole':
             case 'utility_design_co':
-                $columns[] = Tables\Columns\TextColumn::make('data.patent_type')->label('Type')->formatStateUsing(fn(?string $state): string => Str::of($state)->replace('_', ' ')->title())->badge();
-                $columns[] = Tables\Columns\TextColumn::make('data.application_date')->label('Application Date')->date();
-                $columns[] = Tables\Columns\TextColumn::make('data.date_granted')->label('Date Granted')->date();
+                $columns[] = Tables\Columns\TextColumn::make('data.patent_type')->label('Type')->formatStateUsing(fn(?string $state): string => $maps['patent_type'][$state] ?? Str::of($state)->replace('_', ' ')->title())->badge();
+                $columns[] = Tables\Columns\TextColumn::make('data.application_date')->label('Application Date')->date('m/d/Y');
+                $columns[] = Tables\Columns\TextColumn::make('data.date_granted')->label('Date Granted')->date('m/d/Y');
                 break;
             case 'commercialized_local':
             case 'commercialized_intl':
                 $columns[] = Tables\Columns\TextColumn::make('data.patent_type')->label('Type of Product');
-                $columns[] = Tables\Columns\TextColumn::make('data.date_patented')->label('Date Patented')->date();
-                $columns[] = Tables\Columns\TextColumn::make('data.date_commercialized')->label('Date Commercialized')->date();
+                $columns[] = Tables\Columns\TextColumn::make('data.date_patented')->label('Date Patented')->date('m/d/Y');
+                $columns[] = Tables\Columns\TextColumn::make('data.date_commercialized')->label('Date Commercialized')->date('m/d/Y');
                 $columns[] = Tables\Columns\TextColumn::make('data.area_commercialized')->label('Area Commercialized');
                 break;
         }
@@ -134,7 +190,6 @@ class PatentedInventionsWidget extends BaseKRAWidget
                 })
                 ->modalHeading(fn(): string => 'Submit New ' . Str::of($this->activeTable)->replace('_', ' ')->title())
                 ->modalWidth('3xl')
-                ->hidden(fn(): bool => $this->submissionExistsForCurrentType())
                 ->after(fn() => $this->mount()),
         ];
     }
@@ -142,6 +197,7 @@ class PatentedInventionsWidget extends BaseKRAWidget
     protected function getTableActions(): array
     {
         return [
+            ViewSubmissionFilesAction::make(),
             EditAction::make()
                 ->form($this->getFormSchema())
                 ->modalHeading(fn(): string => 'Edit ' . Str::of($this->activeTable)->replace('_', ' ')->title())
@@ -156,6 +212,7 @@ class PatentedInventionsWidget extends BaseKRAWidget
     protected function getFormSchema(): array
     {
         $schema = [];
+        $maps = $this->getOptionsMaps();
 
         switch ($this->activeTable) {
             case 'invention_patent_sole':
@@ -170,7 +227,7 @@ class PatentedInventionsWidget extends BaseKRAWidget
                         ->required(),
                     Select::make('data.patent_stage')
                         ->label('Patent Application Stage')
-                        ->options(['accepted' => 'Accepted', 'published' => 'Published', 'granted' => 'Granted'])
+                        ->options($maps['patent_stage'])
                         ->searchable()
                         ->required(),
                     DatePicker::make('data.date_granted')
@@ -187,7 +244,7 @@ class PatentedInventionsWidget extends BaseKRAWidget
                     Textarea::make('data.name')->label('Name of Invention/Design')->maxLength(255)->required()->columnSpanFull(),
                     Select::make('data.patent_type')
                         ->label('Type of Patent')
-                        ->options(['utility_model' => 'Utility Model', 'industrial_design' => 'Industrial Design'])
+                        ->options($maps['patent_type'])
                         ->searchable()
                         ->required(),
                     DatePicker::make('data.application_date')
@@ -234,11 +291,7 @@ class PatentedInventionsWidget extends BaseKRAWidget
                 ->required();
         }
 
-        $schema[] = FileUpload::make('google_drive_file_id')
-            ->label('Proof Document(s)')
-            ->multiple()->reorderable()->required()->disk('private')
-            ->directory(fn(): string => 'proof-documents/kra2-patents/' . $this->activeTable)
-            ->columnSpanFull();
+        $schema[] = $this->getKRAFileUploadComponent();
 
         return $schema;
     }

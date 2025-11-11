@@ -3,28 +3,48 @@
 namespace App\Filament\Instructor\Widgets\KRA4;
 
 use App\Models\Submission;
+use App\Services\DocumentAiService;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
+use Filament\Notifications\Notification;
 use Filament\Tables;
 use Filament\Tables\Actions\CreateAction;
 use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Table;
-use App\Filament\Instructor\Widgets\BaseKRAWidget;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use App\Filament\Instructor\Widgets\BaseKRAWidget;
 use App\Tables\Columns\ScoreColumn;
+use Filament\Forms\Components\Actions;
+use Filament\Forms\Components\Actions\Action;
+use Filament\Forms\Components\Grid;
+use Illuminate\Support\Facades\Log;
+use App\Filament\Traits\AutofillDocument;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
+use Filament\Forms\Components\FileUpload; 
 
 class AwardsRecognitionWidget extends BaseKRAWidget
 {
-    protected int | string | array $columnSpan = 'full';
+    use AutofillDocument;
+    use HandlesKRAFileUploads;
+
+    protected int|string|array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
 
     protected static string $view = 'filament.instructor.widgets.k-r-a4.awards-recognition-widget';
+
+    protected function getGoogleDriveFolderPath(): array
+    {
+        return [$this->getKACategory(), 'C: Awards and Recognition'];
+    }
 
     protected function getKACategory(): string
     {
@@ -36,6 +56,25 @@ class AwardsRecognitionWidget extends BaseKRAWidget
         return 'profdev-award-recognition';
     }
 
+    protected function getOptionsMaps(): array
+    {
+        return [
+            'scope' => [
+                'institutional' => 'Institutional',
+                'local' => 'Local',
+                'regional' => 'Regional',
+            ],
+        ];
+    }
+
+    public function getDisplayFormattingMap(): array
+    {
+        return [
+            'Scope' => $this->getOptionsMaps()['scope'],
+            'Date Given' => 'm/d/Y',
+        ];
+    }
+
     public function table(Table $table): Table
     {
         return $table
@@ -45,14 +84,15 @@ class AwardsRecognitionWidget extends BaseKRAWidget
                 Tables\Columns\TextColumn::make('data.name')->label('Name of the Award')->wrap(),
                 Tables\Columns\TextColumn::make('data.scope')
                     ->label('Scope')
-                    ->formatStateUsing(fn(?string $state): string => Str::title($state))
+                    ->formatStateUsing(fn(?string $state): string => $this->getOptionsMaps()['scope'][$state] ?? Str::title($state ?? ''))
                     ->badge(),
                 Tables\Columns\TextColumn::make('data.awarding_body')->label('Award-Giving Body'),
-                Tables\Columns\TextColumn::make('data.date_given')->label('Date Given')->date(),
+                Tables\Columns\TextColumn::make('data.date_given')->label('Date Given')->date('m/d/Y'),
+                Tables\Columns\TextColumn::make('data.venue')->label('Venue of Ceremony'),
                 ScoreColumn::make('score'),
             ])
             ->headerActions([
-                Tables\Actions\CreateAction::make()
+                CreateAction::make()
                     ->label('Add')
                     ->form($this->getFormSchema())
                     ->mutateFormDataUsing(function (array $data): array {
@@ -64,16 +104,16 @@ class AwardsRecognitionWidget extends BaseKRAWidget
                     })
                     ->modalHeading('Submit New Award/Recognition')
                     ->modalWidth('3xl')
-                    ->hidden(fn(): bool => $this->submissionExistsForCurrentType())
                     ->after(fn() => $this->mount()),
             ])
             ->actions([
+                ViewSubmissionFilesAction::make(),
                 Tables\Actions\EditAction::make()
                     ->form($this->getFormSchema())
                     ->modalHeading('Edit Award/Recognition')
                     ->modalWidth('3xl')
                     ->visible($this->getActionVisibility()),
-                Tables\Actions\DeleteAction::make()
+                DeleteAction::make()
                     ->after(fn() => $this->mount())
                     ->visible($this->getActionVisibility()),
             ]);
@@ -88,6 +128,26 @@ class AwardsRecognitionWidget extends BaseKRAWidget
             ->where('application_id', $this->selectedApplicationId);
     }
 
+    //map for autofill certificate data
+    protected function mapCertificateDataToForm(Set $set, Get $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
+    {
+        $set('data.name', $credentialType ?? $get('data.name'));
+        $set('data.date_given', $dateCompleted ?? $get('data.date_given'));
+        $set('data.awarding_body', $issuingOrg ?? $get('data.awarding_body'));
+        $set('data.venue', $venue ?? $get('data.venue'));
+    }
+
+    protected function mapMoaDataToForm(Set $set, Get $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
+    {
+        Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Memorandum of Agreement (MOA). This form requires a Certificate or Award Document.')->warning()->send();
+    }
+
+    protected function mapResearchDataToForm(Set $set, Get $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
+    {
+        Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Research Paper/Thesis. This form requires a Certificate or Award Document.')->warning()->send();
+    }
+
+
     protected function getFormSchema(): array
     {
         return [
@@ -95,38 +155,42 @@ class AwardsRecognitionWidget extends BaseKRAWidget
                 ->label('Name of the Award')
                 ->required()
                 ->maxLength(255)
-                ->columnSpanFull(),
+                ->columnSpanFull()
+                ->live(),
+
             Select::make('data.scope')
                 ->label('Scope of the Award')
-                ->options([
-                    'institutional' => 'Institutional',
-                    'local' => 'Local',
-                    'regional' => 'Regional',
-                ])
+                ->options($this->getOptionsMaps()['scope'])
                 ->searchable()
                 ->required(),
+
             TextInput::make('data.awarding_body')
                 ->label('Award-Giving Body/Organization')
                 ->required()
-                ->maxLength(255),
+                ->maxLength(255)
+                ->live(),
+
             DatePicker::make('data.date_given')
                 ->label('Date the Award was Given')
                 ->native(false)
                 ->displayFormat('m/d/Y')
                 ->required()
-                ->maxDate(now()),
+                ->maxDate(now())
+                ->live(),
+
             TextInput::make('data.venue')
                 ->label('Venue of the Award Ceremony')
                 ->required()
-                ->maxLength(255),
-            FileUpload::make('google_drive_file_id')
-                ->label('Proof Document(s) (e.g., Certificate, Plaque Photo)')
-                ->multiple()
-                ->reorderable()
-                ->required()
-                ->disk('private')
-                ->directory('proof-documents/kra4-awards')
-                ->columnSpanFull(),
+                ->maxLength(255)
+                ->live(),
+
+            Grid::make(3)
+                ->columnSpanFull()
+                ->schema([
+                    $this->getKRAFileUploadComponent()->columnSpan(2),
+                    $this->getAutofillAction(),
+                ]),
+
         ];
     }
 }

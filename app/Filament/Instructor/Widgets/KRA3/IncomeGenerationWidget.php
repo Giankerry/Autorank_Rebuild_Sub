@@ -4,7 +4,6 @@ namespace App\Filament\Instructor\Widgets\KRA3;
 
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -17,14 +16,23 @@ use Illuminate\Support\Str;
 use App\Forms\Components\TrimmedNumericInput;
 use App\Tables\Columns\ScoreColumn;
 use Filament\Forms\Get;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
 
 class IncomeGenerationWidget extends BaseKRAWidget
 {
+    use HandlesKRAFileUploads;
+
     protected int | string | array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
 
     protected static string $view = 'filament.instructor.widgets.k-r-a3.income-generation-widget';
+
+    protected function getGoogleDriveFolderPath(): array
+    {
+        return [$this->getKACategory(), 'A: Service to the Institution', 'Income Generation'];
+    }
 
     protected function getKACategory(): string
     {
@@ -36,6 +44,25 @@ class IncomeGenerationWidget extends BaseKRAWidget
         return 'extension-income-generation';
     }
 
+    protected function getOptionsMaps(): array
+    {
+        return [
+            'role' => [
+                'lead_contributor' => 'Lead Contributor',
+                'co_contributor' => 'Co-contributor',
+            ],
+        ];
+    }
+
+    public function getDisplayFormattingMap(): array
+    {
+        return [
+            'Role' => $this->getOptionsMaps()['role'],
+            'Coverage Start' => 'm/d/Y',
+            'Coverage End' => 'm/d/Y',
+        ];
+    }
+
     public function table(Table $table): Table
     {
         return $table
@@ -45,7 +72,7 @@ class IncomeGenerationWidget extends BaseKRAWidget
                 Tables\Columns\TextColumn::make('data.name')->label('Name of Product/Project')->wrap(),
                 Tables\Columns\TextColumn::make('data.role')
                     ->label('Role')
-                    ->formatStateUsing(fn(?string $state): string => Str::of($state)->replace('_', ' ')->title())
+                    ->formatStateUsing(fn(?string $state): string => $this->getOptionsMaps()['role'][$state] ?? Str::of($state)->replace('_', ' ')->title())
                     ->badge(),
                 Tables\Columns\TextColumn::make('data.amount')
                     ->label('Total Amount')
@@ -69,6 +96,7 @@ class IncomeGenerationWidget extends BaseKRAWidget
                     ->after(fn() => $this->mount()),
             ])
             ->actions([
+                ViewSubmissionFilesAction::make(),
                 Tables\Actions\EditAction::make()
                     ->form($this->getFormSchema())
                     ->modalHeading('Edit Income Generation Contribution')
@@ -98,10 +126,7 @@ class IncomeGenerationWidget extends BaseKRAWidget
                 ->columnSpanFull(),
             Select::make('data.role')
                 ->label('Role')
-                ->options([
-                    'lead_contributor' => 'Lead Contributor',
-                    'co_contributor' => 'Co-contributor',
-                ])
+                ->options($this->getOptionsMaps()['role'])
                 ->searchable()
                 ->required(),
             TrimmedNumericInput::make('data.amount')
@@ -122,14 +147,8 @@ class IncomeGenerationWidget extends BaseKRAWidget
                 ->displayFormat('m/d/Y')
                 ->required()
                 ->minDate(fn(Get $get) => $get('data.coverage_start')),
-            FileUpload::make('google_drive_file_id')
-                ->label('Proof Document(s) (Evidence Link)')
-                ->multiple()
-                ->reorderable()
-                ->required()
-                ->disk('private')
-                ->directory('proof-documents/kra3-income')
-                ->columnSpanFull(),
+
+            $this->getKRAFileUploadComponent(),
         ];
     }
 }

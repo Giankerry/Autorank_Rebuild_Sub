@@ -4,7 +4,6 @@ namespace App\Filament\Instructor\Widgets\KRA3;
 
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -19,14 +18,23 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use App\Forms\Components\TrimmedIntegerInput;
 use App\Tables\Columns\ScoreColumn;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
 
 class SocialResponsibilityWidget extends BaseKRAWidget
 {
+    use HandlesKRAFileUploads;
+
     protected int | string | array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
 
     protected static string $view = 'filament.instructor.widgets.k-r-a3.social-responsibility-widget';
+
+    protected function getGoogleDriveFolderPath(): array
+    {
+        return [$this->getKACategory(), 'B: Service to the Community', 'Social Responsibility'];
+    }
 
     protected function getKACategory(): string
     {
@@ -36,6 +44,24 @@ class SocialResponsibilityWidget extends BaseKRAWidget
     protected function getActiveSubmissionType(): string
     {
         return 'social_responsibility';
+    }
+
+    protected function getOptionsMaps(): array
+    {
+        return [
+            'role' => [
+                'head' => 'Head',
+                'participant' => 'Participant',
+            ],
+        ];
+    }
+
+    public function getDisplayFormattingMap(): array
+    {
+        return [
+            'Role' => $this->getOptionsMaps()['role'],
+            'Activity Date' => 'm/d/Y',
+        ];
     }
 
     public function table(Table $table): Table
@@ -49,9 +75,9 @@ class SocialResponsibilityWidget extends BaseKRAWidget
                 Tables\Columns\TextColumn::make('data.beneficiary_count')->label('Beneficiaries'),
                 Tables\Columns\TextColumn::make('data.role')
                     ->label('Role')
-                    ->formatStateUsing(fn(?string $state): string => Str::title($state))
+                    ->formatStateUsing(fn(?string $state): string => $this->getOptionsMaps()['role'][$state] ?? Str::title($state ?? ''))
                     ->badge(),
-                Tables\Columns\TextColumn::make('data.activity_date')->label('Activity Date')->date(),
+                Tables\Columns\TextColumn::make('data.activity_date')->label('Activity Date')->date('m/d/Y'),
                 ScoreColumn::make('score'),
             ])
             ->headerActions([
@@ -70,6 +96,7 @@ class SocialResponsibilityWidget extends BaseKRAWidget
                     ->after(fn() => $this->mount()),
             ])
             ->actions([
+                ViewSubmissionFilesAction::make(),
                 EditAction::make()
                     ->form($this->getFormSchema())
                     ->modalHeading('Edit Social Responsibility Activity')
@@ -111,10 +138,7 @@ class SocialResponsibilityWidget extends BaseKRAWidget
 
             Select::make('data.role')
                 ->label('Role')
-                ->options([
-                    'head' => 'Head',
-                    'participant' => 'Participant',
-                ])
+                ->options($this->getOptionsMaps()['role'])
                 ->searchable()
                 ->required(),
 
@@ -125,14 +149,7 @@ class SocialResponsibilityWidget extends BaseKRAWidget
                 ->required()
                 ->maxDate(now()),
 
-            FileUpload::make('google_drive_file_id')
-                ->label('Proof Document(s) (Evidence Link)')
-                ->multiple()
-                ->reorderable()
-                ->required()
-                ->disk('private')
-                ->directory('proof-documents/kra3-social-resp')
-                ->columnSpanFull(),
+            $this->getKRAFileUploadComponent(),
         ];
     }
 }

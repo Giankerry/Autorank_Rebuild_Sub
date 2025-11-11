@@ -4,7 +4,6 @@ namespace App\Filament\Instructor\Widgets\KRA2;
 
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Tables;
@@ -18,9 +17,13 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use App\Forms\Components\TrimmedIntegerInput;
 use App\Tables\Columns\ScoreColumn;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
 
 class TranslatedOutputsWidget extends BaseKRAWidget
 {
+    use HandlesKRAFileUploads;
+
     protected int | string | array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
@@ -34,6 +37,20 @@ class TranslatedOutputsWidget extends BaseKRAWidget
         $this->resetTable();
     }
 
+    protected function getGoogleDriveFolderPath(): array
+    {
+        $kra = $this->getKACategory();
+
+        switch ($this->activeTable) {
+            case 'lead_researcher':
+                return [$kra, 'B: Translated Outputs', 'Lead Researcher'];
+            case 'contributor':
+                return [$kra, 'B: Translated Outputs', 'Contributor'];
+            default:
+                return [$kra, Str::slug($this->getActiveSubmissionType())];
+        }
+    }
+
     protected function getKACategory(): string
     {
         return 'KRA II';
@@ -44,6 +61,14 @@ class TranslatedOutputsWidget extends BaseKRAWidget
         return $this->activeTable === 'lead_researcher'
             ? 'research-translated-lead'
             : 'research-translated-contributor';
+    }
+
+    public function getDisplayFormattingMap(): array
+    {
+        return [
+            'Date Completed' => 'm/d/Y',
+            'Date Utilized' => 'm/d/Y',
+        ];
     }
 
     public function table(Table $table): Table
@@ -78,15 +103,15 @@ class TranslatedOutputsWidget extends BaseKRAWidget
             'lead_researcher' => [
                 Tables\Columns\TextColumn::make('data.title')->label('Title of Research')->wrap(),
                 Tables\Columns\TextColumn::make('data.project_name')->label('Project/Policy/Product Name')->wrap(),
-                Tables\Columns\TextColumn::make('data.date_completed')->label('Date Completed')->date(),
-                Tables\Columns\TextColumn::make('data.date_utilized')->label('Date Utilized/Implemented')->date(),
+                Tables\Columns\TextColumn::make('data.date_completed')->label('Date Completed')->date('m/d/Y'),
+                Tables\Columns\TextColumn::make('data.date_utilized')->label('Date Utilized/Implemented')->date('m/d/Y'),
                 ScoreColumn::make('score'),
             ],
             'contributor' => [
                 Tables\Columns\TextColumn::make('data.title')->label('Title of Research')->wrap(),
                 Tables\Columns\TextColumn::make('data.project_name')->label('Project/Policy/Product Name')->wrap(),
-                Tables\Columns\TextColumn::make('data.date_completed')->label('Date Completed')->date(),
-                Tables\Columns\TextColumn::make('data.date_utilized')->label('Date Utilized/Implemented')->date(),
+                Tables\Columns\TextColumn::make('data.date_completed')->label('Date Completed')->date('m/d/Y'),
+                Tables\Columns\TextColumn::make('data.date_utilized')->label('Date Utilized/Implemented')->date('m/d/Y'),
                 Tables\Columns\TextColumn::make('data.contribution_percentage')
                     ->label('% Contribution')
                     ->suffix('%'),
@@ -111,7 +136,6 @@ class TranslatedOutputsWidget extends BaseKRAWidget
                 })
                 ->modalHeading(fn(): string => 'Submit New Translated Output (' . Str::of($this->activeTable)->replace('_', ' ')->title() . ')')
                 ->modalWidth('3xl')
-                ->hidden(fn(): bool => $this->submissionExistsForCurrentType())
                 ->after(fn() => $this->mount()),
         ];
     }
@@ -119,6 +143,7 @@ class TranslatedOutputsWidget extends BaseKRAWidget
     protected function getTableActions(): array
     {
         return [
+            ViewSubmissionFilesAction::make(),
             EditAction::make()
                 ->form($this->getFormSchema())
                 ->modalHeading(fn(): string => 'Edit Translated Output (' . Str::of($this->activeTable)->replace('_', ' ')->title() . ')')
@@ -169,14 +194,7 @@ class TranslatedOutputsWidget extends BaseKRAWidget
                 ->required();
         }
 
-        $schema[] = FileUpload::make('google_drive_file_id')
-            ->label('Proof Document(s)')
-            ->multiple()
-            ->reorderable()
-            ->required()
-            ->disk('private')
-            ->directory(fn(): string => 'proof-documents/kra2-translated/' . $this->activeTable)
-            ->columnSpanFull();
+        $schema[] = $this->getKRAFileUploadComponent();
 
         return $schema;
     }

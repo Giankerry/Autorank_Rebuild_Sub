@@ -3,7 +3,6 @@
 namespace App\Filament\Instructor\Widgets\KRA1;
 
 use App\Models\Submission;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Get;
@@ -19,9 +18,13 @@ use App\Forms\Components\TrimmedIntegerInput;
 use App\Forms\Components\TrimmedNumericInput;
 use App\Tables\Columns\ScoreColumn;
 use App\Filament\Instructor\Widgets\BaseKRAWidget;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
 
 class TeachingEffectivenessWidget extends BaseKRAWidget
 {
+    use HandlesKRAFileUploads;
+
     protected int | string | array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
@@ -35,6 +38,25 @@ class TeachingEffectivenessWidget extends BaseKRAWidget
         $this->resetTable();
     }
 
+    protected function getGoogleDriveFolderPath(): array
+    {
+        $kra = $this->getKACategory();
+
+        switch ($this->activeTable) {
+            case 'student_evaluation':
+                return [$kra, 'A: Teaching Effectiveness', 'Student Evaluation'];
+            case 'supervisor_evaluation':
+                return [$kra, 'A: Teaching Effectiveness', 'Supervisor Evaluation'];
+            default:
+                return [$kra, Str::slug($this->getActiveSubmissionType())];
+        }
+    }
+
+    protected function isMultipleSubmissionAllowed(): bool
+    {
+        return false;
+    }
+
     protected function getKACategory(): string
     {
         return 'KRA I';
@@ -45,6 +67,25 @@ class TeachingEffectivenessWidget extends BaseKRAWidget
         return $this->activeTable === 'student_evaluation'
             ? 'te-student-evaluation'
             : 'te-supervisor-evaluation';
+    }
+
+    protected function getOptionsMaps(): array
+    {
+        return [
+            'reason_for_deducting' => [
+                'NOT APPLICABLE' => 'Not Applicable',
+                'ON APPROVED STUDY LEAVE' => 'On Approved Study Leave',
+                'ON APPROVED SABBATICAL LEAVE' => 'On Approved Sabbatical Leave',
+                'ON APPROVED MATERNITY LEAVE' => 'On Approved Maternity Leave',
+            ]
+        ];
+    }
+
+    public function getDisplayFormattingMap(): array
+    {
+        return [
+            'Reason For Deducting' => $this->getOptionsMaps()['reason_for_deducting'],
+        ];
     }
 
     public function table(Table $table): Table
@@ -81,45 +122,9 @@ class TeachingEffectivenessWidget extends BaseKRAWidget
                 ->dateTime('M j, Y g:ia')
                 ->sortable(),
 
-            Tables\Columns\TextColumn::make('average_rating')
+            Tables\Columns\TextColumn::make('raw_score')
                 ->label('Overall Average Rating')
-                ->numeric(2, '.', ',')
-                ->state(function (Submission $record): float {
-                    $data = $record->data;
-                    $prefix = $this->activeTable === 'student_evaluation' ? 'student' : 'supervisor';
-
-                    $keys = [];
-                    for ($year = 1; $year <= 4; $year++) {
-                        for ($sem = 1; $sem <= 2; $sem++) {
-                            $keys[] = "{$prefix}_ay{$year}_sem{$sem}";
-                        }
-                    }
-
-                    $ratings = [];
-                    foreach ($keys as $key) {
-                        if (isset($data[$key]) && is_numeric($data[$key])) {
-                            $ratings[] = min((float)$data[$key], 100.0);
-                        } else {
-                            $ratings[] = 0.0;
-                        }
-                    }
-
-                    $sum = array_sum($ratings);
-                    if ($sum === 0.0) return 0.0;
-
-                    $totalSemesters = count($keys);
-                    $deductedSemesters = (int)($data["{$prefix}_deducted_semesters"] ?? 0);
-                    $reason = $data['reason_for_deducting'] ?? 'NOT APPLICABLE';
-                    $isValidDeduction = $reason !== 'NOT APPLICABLE' && $reason !== 'SELECT OPTION';
-
-                    $divisor = $totalSemesters;
-                    if ($isValidDeduction && $deductedSemesters > 0 && $deductedSemesters < $totalSemesters) {
-                        $divisor = $totalSemesters - $deductedSemesters;
-                    }
-                    $divisor = max(1, $divisor);
-
-                    return $sum / $divisor;
-                }),
+                ->numeric(2, '.', ','),
 
             ScoreColumn::make('score'),
         ];
@@ -148,6 +153,7 @@ class TeachingEffectivenessWidget extends BaseKRAWidget
     protected function getTableActions(): array
     {
         return [
+            ViewSubmissionFilesAction::make(),
             EditAction::make()
                 ->label('Edit Evaluation Data')
                 ->form($this->getFormSchema())
@@ -208,12 +214,7 @@ class TeachingEffectivenessWidget extends BaseKRAWidget
                 ->schema([
                     Select::make('data.reason_for_deducting')
                         ->label('Reason for Deducting Semesters (Leave)')
-                        ->options([
-                            'NOT APPLICABLE' => 'Not Applicable',
-                            'ON APPROVED STUDY LEAVE' => 'On Approved Study Leave',
-                            'ON APPROVED SABBATICAL LEAVE' => 'On Approved Sabbatical Leave',
-                            'ON APPROVED MATERNITY LEAVE' => 'On Approved Maternity Leave',
-                        ])
+                        ->options($this->getOptionsMaps()['reason_for_deducting'])
                         ->default('NOT APPLICABLE')
                         ->required()
                         ->live(),
@@ -227,14 +228,7 @@ class TeachingEffectivenessWidget extends BaseKRAWidget
                         ->visible(fn(Get $get): bool => $get('data.reason_for_deducting') !== 'NOT APPLICABLE'),
                 ])->columns(2),
 
-            FileUpload::make('google_drive_file_id')
-                ->label('Proof Document(s)')
-                ->multiple()
-                ->reorderable()
-                ->required()
-                ->disk('private')
-                ->directory(fn(): string => 'proof-documents/kra1-te/' . $this->activeTable)
-                ->columnSpanFull(),
+            $this->getKRAFileUploadComponent(),
         ];
     }
 }

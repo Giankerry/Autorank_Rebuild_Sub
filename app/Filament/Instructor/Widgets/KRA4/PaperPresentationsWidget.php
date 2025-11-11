@@ -4,7 +4,6 @@ namespace App\Filament\Instructor\Widgets\KRA4;
 
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -18,14 +17,23 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use App\Tables\Columns\ScoreColumn;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
 
 class PaperPresentationsWidget extends BaseKRAWidget
 {
+    use HandlesKRAFileUploads;
+
     protected int | string | array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
 
     protected static string $view = 'filament.instructor.widgets.k-r-a4.paper-presentations-widget';
+
+    protected function getGoogleDriveFolderPath(): array
+    {
+        return [$this->getKACategory(), 'B: Paper Presentations'];
+    }
 
     protected function getKACategory(): string
     {
@@ -37,6 +45,24 @@ class PaperPresentationsWidget extends BaseKRAWidget
         return 'profdev-paper-presentation';
     }
 
+    protected function getOptionsMaps(): array
+    {
+        return [
+            'scope' => [
+                'local' => 'Local',
+                'international' => 'International',
+            ],
+        ];
+    }
+
+    public function getDisplayFormattingMap(): array
+    {
+        return [
+            'Scope' => $this->getOptionsMaps()['scope'],
+            'Date Presented' => 'm/d/Y',
+        ];
+    }
+
     public function table(Table $table): Table
     {
         return $table
@@ -46,37 +72,14 @@ class PaperPresentationsWidget extends BaseKRAWidget
                 Tables\Columns\TextColumn::make('data.title')->label('Title of Paper')->wrap(),
                 Tables\Columns\TextColumn::make('data.scope')
                     ->label('Scope')
-                    ->formatStateUsing(fn(?string $state): string => Str::title($state))
+                    ->formatStateUsing(fn(?string $state): string => $this->getOptionsMaps()['scope'][$state] ?? Str::title($state ?? ''))
                     ->badge(),
                 Tables\Columns\TextColumn::make('data.conference_title')->label('Title of Conference'),
-                Tables\Columns\TextColumn::make('data.date_presented')->label('Date Presented')->date(),
+                Tables\Columns\TextColumn::make('data.date_presented')->label('Date Presented')->date('m/d/Y'),
                 ScoreColumn::make('score'),
             ])
-            ->headerActions([
-                Tables\Actions\CreateAction::make()
-                    ->label('Add')
-                    ->form($this->getFormSchema())
-                    ->mutateFormDataUsing(function (array $data): array {
-                        $data['user_id'] = Auth::id();
-                        $data['application_id'] = $this->selectedApplicationId;
-                        $data['category'] = $this->getKACategory();
-                        $data['type'] = $this->getActiveSubmissionType();
-                        return $data;
-                    })
-                    ->modalHeading('Submit New Paper Presentation')
-                    ->modalWidth('3xl')
-                    ->after(fn() => $this->mount()),
-            ])
-            ->actions([
-                Tables\Actions\EditAction::make()
-                    ->form($this->getFormSchema())
-                    ->modalHeading('Edit Paper Presentation')
-                    ->modalWidth('3xl')
-                    ->visible($this->getActionVisibility()),
-                Tables\Actions\DeleteAction::make()
-                    ->after(fn() => $this->mount())
-                    ->visible($this->getActionVisibility()),
-            ]);
+            ->headerActions($this->getTableHeaderActions())
+            ->actions($this->getTableActions());
     }
 
     protected function getTableQuery(): Builder
@@ -86,6 +89,40 @@ class PaperPresentationsWidget extends BaseKRAWidget
             ->where('category', $this->getKACategory())
             ->where('type', $this->getActiveSubmissionType())
             ->where('application_id', $this->selectedApplicationId);
+    }
+
+    protected function getTableHeaderActions(): array
+    {
+        return [
+            Tables\Actions\CreateAction::make()
+                ->label('Add')
+                ->form($this->getFormSchema())
+                ->mutateFormDataUsing(function (array $data): array {
+                    $data['user_id'] = Auth::id();
+                    $data['application_id'] = $this->selectedApplicationId;
+                    $data['category'] = $this->getKACategory();
+                    $data['type'] = $this->getActiveSubmissionType();
+                    return $data;
+                })
+                ->modalHeading('Submit New Paper Presentation')
+                ->modalWidth('3xl')
+                ->after(fn() => $this->mount()),
+        ];
+    }
+
+    protected function getTableActions(): array
+    {
+        return [
+            ViewSubmissionFilesAction::make(),
+            Tables\Actions\EditAction::make()
+                ->form($this->getFormSchema())
+                ->modalHeading('Edit Paper Presentation')
+                ->modalWidth('3xl')
+                ->visible($this->getActionVisibility()),
+            Tables\Actions\DeleteAction::make()
+                ->after(fn() => $this->mount())
+                ->visible($this->getActionVisibility()),
+        ];
     }
 
     protected function getFormSchema(): array
@@ -98,10 +135,7 @@ class PaperPresentationsWidget extends BaseKRAWidget
                 ->columnSpanFull(),
             Select::make('data.scope')
                 ->label('Scope')
-                ->options([
-                    'local' => 'Local',
-                    'international' => 'International',
-                ])
+                ->options($this->getOptionsMaps()['scope'])
                 ->searchable()
                 ->required(),
             TextInput::make('data.conference_title')
@@ -118,14 +152,8 @@ class PaperPresentationsWidget extends BaseKRAWidget
                 ->displayFormat('m/d/Y')
                 ->required()
                 ->maxDate(now()),
-            FileUpload::make('google_drive_file_id')
-                ->label('Proof Document(s) (e.g., Certificate of Presentation, Copy of Paper)')
-                ->multiple()
-                ->reorderable()
-                ->required()
-                ->disk('private')
-                ->directory('proof-documents/kra4-papers')
-                ->columnSpanFull(),
+
+            $this->getKRAFileUploadComponent(),
         ];
     }
 }

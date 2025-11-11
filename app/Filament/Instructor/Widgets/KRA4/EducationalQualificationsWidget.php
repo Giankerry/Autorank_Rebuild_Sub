@@ -4,11 +4,12 @@ namespace App\Filament\Instructor\Widgets\KRA4;
 
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Get;
+use Filament\Forms\Set;
+use Filament\Notifications\Notification;
 use Filament\Tables;
 use Filament\Tables\Actions\CreateAction;
 use Filament\Tables\Actions\DeleteAction;
@@ -19,9 +20,23 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use App\Tables\Columns\ScoreColumn;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
+
+use App\Filament\Traits\AutofillDocument; //import for Autofill
+use Filament\Forms\Components\Actions;
+use Filament\Forms\Components\Actions\Action;
+use Filament\Forms\Components\Grid;
+use Illuminate\Support\Facades\Log;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Filament\Forms\Components\FileUpload;
 
 class EducationalQualificationsWidget extends BaseKRAWidget
 {
+    // NEW: Use both traits
+    use HandlesKRAFileUploads;
+    use AutofillDocument;
+
     protected int | string | array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
@@ -35,6 +50,23 @@ class EducationalQualificationsWidget extends BaseKRAWidget
         $this->resetTable();
     }
 
+    protected function getGoogleDriveFolderPath(): array
+    {
+        $kra = $this->getKACategory();
+        $baseFolder = 'B: Educational Qualifications';
+
+        switch ($this->activeTable) {
+            case 'doctorate_degree':
+                return [$kra, $baseFolder, 'Doctorate'];
+            case 'masters_degree':
+                return [$kra, $baseFolder, 'Masters'];
+            case 'diploma_certificate':
+                return [$kra, $baseFolder, 'Diploma and Certificate'];
+        }
+
+        return [$kra, $baseFolder];
+    }
+
     protected function getKACategory(): string
     {
         return 'KRA IV';
@@ -42,22 +74,52 @@ class EducationalQualificationsWidget extends BaseKRAWidget
 
     protected function getActiveSubmissionType(): string
     {
-        return $this->activeTable === 'doctorate_degree'
-            ? 'profdev-doctorate'
-            : 'profdev-additional-degree';
+        return 'profdev-' . $this->activeTable;
+    }
+
+    protected function getOptionsMaps(): array
+    {
+        return [
+            'degree_type' => [
+                'doctorate' => 'Doctorate',
+                'masters' => 'Master\'s',
+                'diploma' => 'Diploma/Certificate',
+            ],
+            'output_type' => [
+                'degree' => 'Degree',
+                'certificate' => 'Certificate'
+            ],
+        ];
+    }
+
+    public function getDisplayFormattingMap(): array
+    {
+        return [
+            'Type' => $this->getOptionsMaps()['degree_type'],
+        ];
     }
 
     public function table(Table $table): Table
     {
         return $table
             ->query(fn(): Builder => $this->getTableQuery())
-            ->heading(fn(): string => $this->getTableHeading())
-            ->columns($this->getTableColumns())
+            ->heading('Educational Qualifications')
+            ->columns([
+                Tables\Columns\TextColumn::make('data.degree_type')
+                    ->label('Type')
+                    ->formatStateUsing(fn(?string $state): string => $this->getOptionsMaps()['degree_type'][$state] ?? Str::title($state ?? ''))
+                    ->badge(),
+                Tables\Columns\TextColumn::make('data.name')->label('Name of Degree/Diploma/Certificate')->wrap(),
+                Tables\Columns\TextColumn::make('data.institution')->label('Name of HEI'),
+                Tables\Columns\TextColumn::make('data.date_completed')->label('Date Completed')->date('m/d/Y'),
+                Tables\Columns\IconColumn::make('data.is_qualified')
+                    ->label('Used for Promotion')
+                    ->boolean()
+                    ->visible($this->activeTable === 'doctorate_degree' || $this->activeTable === 'masters_degree'),
+                ScoreColumn::make('score'),
+            ])
             ->headerActions($this->getTableHeaderActions())
-            ->actions($this->getTableActions())
-            ->checkIfRecordIsSelectableUsing(
-                fn(Submission $record): bool => !$this->submissionExistsForCurrentType() || $record->id === $this->getCurrentSubmissionId()
-            );
+            ->actions($this->getTableActions());
     }
 
     protected function getTableQuery(): Builder
@@ -69,43 +131,10 @@ class EducationalQualificationsWidget extends BaseKRAWidget
             ->where('application_id', $this->selectedApplicationId);
     }
 
-    protected function getTableHeading(): string
-    {
-        return $this->activeTable === 'doctorate_degree'
-            ? 'Doctorate Degree (First Time)'
-            : 'Additional Degrees / Diplomas / Certificates';
-    }
-
-    protected function getTableColumns(): array
-    {
-        if ($this->activeTable === 'doctorate_degree') {
-            return [
-                Tables\Columns\TextColumn::make('data.name')->label('Name of Doctorate Degree')->wrap(),
-                Tables\Columns\TextColumn::make('data.institution')->label('Name of Institution'),
-                Tables\Columns\TextColumn::make('data.date_completed')->label('Date Completed')->date(),
-                Tables\Columns\IconColumn::make('data.is_qualified')
-                    ->label('Claimed for Sub-rank Increase?')
-                    ->boolean(),
-                ScoreColumn::make('score'),
-            ];
-        }
-
-        return [
-            Tables\Columns\TextColumn::make('data.degree_type')
-                ->label('Type')
-                ->formatStateUsing(fn(?string $state): string => Str::of($state)->replace('_', ' ')->title())
-                ->badge(),
-            Tables\Columns\TextColumn::make('data.name')->label('Degree/Diploma/Cert Name')->wrap(),
-            Tables\Columns\TextColumn::make('data.institution')->label('Name of HEI'),
-            Tables\Columns\TextColumn::make('data.date_completed')->label('Date Completed')->date(),
-            ScoreColumn::make('score'),
-        ];
-    }
-
     protected function getTableHeaderActions(): array
     {
         return [
-            CreateAction::make()
+            Tables\Actions\CreateAction::make()
                 ->label('Add')
                 ->form($this->getFormSchema())
                 ->mutateFormDataUsing(function (array $data): array {
@@ -115,9 +144,8 @@ class EducationalQualificationsWidget extends BaseKRAWidget
                     $data['type'] = $this->getActiveSubmissionType();
                     return $data;
                 })
-                ->modalHeading(fn(): string => $this->activeTable === 'doctorate_degree' ? 'Submit Doctorate Degree' : 'Submit Additional Qualification')
+                ->modalHeading('Submit New Educational Qualification')
                 ->modalWidth('3xl')
-                ->hidden(fn(): bool => $this->activeTable === 'doctorate_degree' && $this->submissionExistsForCurrentType())
                 ->after(fn() => $this->mount()),
         ];
     }
@@ -125,39 +153,74 @@ class EducationalQualificationsWidget extends BaseKRAWidget
     protected function getTableActions(): array
     {
         return [
-            EditAction::make()
+            ViewSubmissionFilesAction::make(),
+            Tables\Actions\EditAction::make()
                 ->form($this->getFormSchema())
-                ->modalHeading(fn(): string => $this->activeTable === 'doctorate_degree' ? 'Edit Doctorate Degree' : 'Edit Additional Qualification')
+                ->modalHeading('Edit Educational Qualification')
                 ->modalWidth('3xl')
                 ->visible($this->getActionVisibility()),
-            DeleteAction::make()
+            Tables\Actions\DeleteAction::make()
                 ->after(fn() => $this->mount())
                 ->visible($this->getActionVisibility()),
         ];
     }
 
+    //Autofill Implementation for Educational Qualifications
+    protected function mapCertificateDataToForm(Set $set, Get $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
+    {
+        $set('data.name', $credentialType ?? $get('data.name'));
+        $set('data.institution', $issuingOrg ?? $get('data.institution'));
+        $set('data.date_completed', $dateCompleted ?? $get('data.date_completed'));
+        $extractedType = Str::lower($credentialType ?? '');
+
+        if (Str::contains($extractedType, ['master', 'm.s.'])) {
+            $set('data.degree_type', 'masters');
+        } elseif (Str::contains($extractedType, ['doctorate', 'ph.d.'])) {
+            $set('data.degree_type', 'doctorate');
+        } elseif (Str::contains($extractedType, ['diploma', 'certificate'])) {
+            $set('data.degree_type', 'diploma'); // Map to the general diploma category
+        }
+    }
+
+    protected function mapMoaDataToForm(Set $set, Get $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
+    {
+        Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a MOA. This form requires a Diploma or Certificate.')->warning()->send();
+    }
+
+    protected function mapResearchDataToForm(Set $set, Get $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
+    {
+        Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Research Paper/Thesis. This form requires a Diploma or Certificate.')->warning()->send();
+    }
+
+
     protected function getFormSchema(): array
     {
-        $schema = [];
-
-        if ($this->activeTable === 'doctorate_degree') {
+        if ($this->activeTable === 'doctorate_degree' || $this->activeTable === 'masters_degree') {
             $schema = [
+                Select::make('data.degree_type')
+                    ->label('Type')
+                    ->options($this->getOptionsMaps()['degree_type'])
+                    ->required()
+                    ->searchable()
+                    ->live(),
                 TextInput::make('data.name')
-                    ->label('Name of Doctorate Degree (complete name of the program)')
+                    ->label('Name of Degree')
                     ->required()
                     ->maxLength(255)
-                    ->columnSpanFull(),
+                    ->live(),
                 TextInput::make('data.institution')
-                    ->label('Name of Institution Where the Degree Was Earned')
+                    ->label('Name of HEI')
                     ->required()
                     ->maxLength(255)
-                    ->columnSpanFull(),
+                    ->columnSpanFull()
+                    ->live(),
                 DatePicker::make('data.date_completed')
                     ->label('Date Completed')
                     ->native(false)
                     ->displayFormat('m/d/Y')
                     ->required()
-                    ->maxDate(now()),
+                    ->maxDate(now())
+                    ->live(),
                 Toggle::make('data.is_qualified')
                     ->label('Is this degree being used for automatic 1 sub-rank increase?')
                     ->helperText('Check this ONLY if you are using this degree for automatic promotion instead of points in this evaluation.')
@@ -165,43 +228,42 @@ class EducationalQualificationsWidget extends BaseKRAWidget
                     ->default(false),
             ];
         } else {
+            // Diploma/Certificate form section
             $schema = [
                 Select::make('data.degree_type')
                     ->label('Type')
-                    ->options([
-                        'additional_doctorate' => 'Additional Doctorate Degree',
-                        'additional_masters' => 'Additional Master\'s Degree',
-                        'post_doctorate_diploma' => 'Post-Doctorate Diploma/Certificate',
-                        'post_masters_diploma' => 'Post-Master\'s Diploma/Certificate',
-                    ])
+                    ->options($this->getOptionsMaps()['degree_type'])
                     ->required()
-                    ->searchable(),
+                    ->searchable()
+                    ->live(),
                 TextInput::make('data.name')
                     ->label('Name of Degree/Diploma/Certificate')
                     ->required()
-                    ->maxLength(255),
+                    ->maxLength(255)
+                    ->live(),
                 TextInput::make('data.institution')
                     ->label('Name of HEI')
                     ->required()
                     ->maxLength(255)
-                    ->columnSpanFull(),
+                    ->columnSpanFull()
+                    ->live(),
                 DatePicker::make('data.date_completed')
                     ->label('Date Completed')
                     ->native(false)
                     ->displayFormat('m/d/Y')
                     ->required()
-                    ->maxDate(now()),
+                    ->maxDate(now())
+                    ->live(),
             ];
         }
 
-        $schema[] = FileUpload::make('google_drive_file_id')
-            ->label('Proof Document(s) (e.g., TOR, Diploma, Certificate)')
-            ->multiple()
-            ->reorderable()
-            ->required()
-            ->disk('private')
-            ->directory(fn(): string => 'proof-documents/kra4-degrees/' . $this->activeTable)
-            ->columnSpanFull();
+        $schema[] = Grid::make(3)
+            ->columnSpanFull()
+            ->schema([
+                $this->getKRAFileUploadComponent()->columnSpan(2),
+
+                $this->getAutofillAction(),
+            ]);
 
         return $schema;
     }

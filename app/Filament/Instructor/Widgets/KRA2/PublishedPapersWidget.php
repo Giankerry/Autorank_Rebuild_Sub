@@ -4,11 +4,12 @@ namespace App\Filament\Instructor\Widgets\KRA2;
 
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Get;
+use Filament\Forms\Set;
+use Filament\Notifications\Notification;
 use Filament\Tables;
 use Filament\Tables\Actions\CreateAction;
 use Filament\Tables\Actions\DeleteAction;
@@ -20,9 +21,23 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use App\Forms\Components\TrimmedIntegerInput;
 use App\Tables\Columns\ScoreColumn;
+use App\Filament\Traits\HandlesKRAFileUploads;
+use App\Tables\Actions\ViewSubmissionFilesAction;
+
+// NEW IMPORTS for Autofill
+use App\Filament\Traits\AutofillDocument;
+use Filament\Forms\Components\Actions;
+use Filament\Forms\Components\Actions\Action;
+use Filament\Forms\Components\Grid;
+use Illuminate\Support\Facades\Log;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Filament\Forms\Components\FileUpload; // Keep this import for the trait
 
 class PublishedPapersWidget extends BaseKRAWidget
 {
+    use AutofillDocument;
+    use HandlesKRAFileUploads;
+
     protected int | string | array $columnSpan = 'full';
 
     protected static bool $isDiscovered = false;
@@ -30,6 +45,11 @@ class PublishedPapersWidget extends BaseKRAWidget
     protected static string $view = 'filament.instructor.widgets.k-r-a2.published-papers-widget';
 
     public ?string $activeTable = 'sole_authorship';
+
+    protected function getGoogleDriveFolderPath(): array
+    {
+        return [$this->getKACategory(), 'A. Published Papers'];
+    }
 
     public function updatedActiveTable(): void
     {
@@ -47,69 +67,71 @@ class PublishedPapersWidget extends BaseKRAWidget
             ? 'research-sole-authorship'
             : 'research-co-authorship';
     }
+    protected function mapCertificateDataToForm(Set $set, Get $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
+    {
+        Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Certificate. This form requires a Research Paper or Thesis.')->warning()->send();
+    }
+
+    protected function mapMoaDataToForm(Set $set, Get $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
+    {
+        Notification::make()->title('Document Type Mismatch')->body('The uploaded document is an MOA. This form requires a Research Paper or Thesis.')->warning()->send();
+    }
+
+    protected function mapResearchDataToForm(Set $set, Get $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
+    {
+        $set('data.title', $title ?? $get('data.title'));
+        $set('data.journal_name', $publisher ?? $get('data.journal_name'));
+        $set('data.date_published', $datePublished ?? $get('data.date_published'));
+
+        if ($authorList) {
+            Notification::make()->title('Authors Extracted')->body('Authors: ' . $authorList . ' (Please enter manually if required).')->info()->send();
+        }
+
+        $outputType = 'journal_article';
+        $docTypeUpper = Str::upper($documentType ?? '');
+
+        if (Str::contains($docTypeUpper, ['THESIS', 'DISSERTATION', 'MONOGRAPH'])) {
+            $outputType = 'monograph';
+        } elseif (Str::contains($docTypeUpper, ['BOOK'])) {
+            $outputType = 'book';
+        }
+        $set('data.output_type', $outputType);
+    }
+
 
     public function table(Table $table): Table
     {
         return $table
             ->query(fn(): Builder => $this->getTableQuery())
-            ->heading(fn(): string => $this->getTableHeading())
-            ->columns($this->getTableColumns())
+            ->heading($this->activeTable === 'sole_authorship' ? 'Published Papers (Sole Authorship)' : 'Published Papers (Co-Authorship)')
+            ->columns([
+                Tables\Columns\TextColumn::make('data.title')->label('Title')->wrap()->toggleable(),
+                Tables\Columns\TextColumn::make('data.output_type')
+                    ->label('Type')
+                    ->formatStateUsing(fn(?string $state): string => Str::of($state)->replace('_', ' ')->title())
+                    ->badge(),
+                Tables\Columns\TextColumn::make('data.journal_name')->label('Journal/Publisher')->wrap()->toggleable(),
+                Tables\Columns\TextColumn::make('data.date_published')->label('Date Published')->date()->toggleable(),
+                Tables\Columns\TextColumn::make('data.contribution_percentage')->label('% Contribution')->visible($this->activeTable === 'co_authorship')->toggleable(),
+                ScoreColumn::make('score'),
+            ])
             ->headerActions($this->getTableHeaderActions())
-            ->actions($this->getTableActions())
-            ->checkIfRecordIsSelectableUsing(
-                fn(Submission $record): bool => !$this->submissionExistsForCurrentType() || $record->id === $this->getCurrentSubmissionId()
-            );
+            ->actions($this->getTableActions());
     }
 
     protected function getTableQuery(): Builder
     {
         return Submission::query()
             ->where('user_id', Auth::id())
+            ->where('category', $this->getKACategory())
             ->where('type', $this->getActiveSubmissionType())
             ->where('application_id', $this->selectedApplicationId);
-    }
-
-    protected function getTableHeading(): string
-    {
-        return $this->activeTable === 'sole_authorship'
-            ? 'Sole Authorship Submissions'
-            : 'Co-Authorship Submissions';
-    }
-
-    protected function getTableColumns(): array
-    {
-        return match ($this->activeTable) {
-            'sole_authorship' => [
-                Tables\Columns\TextColumn::make('data.title')->label('Title')->wrap(),
-                Tables\Columns\TextColumn::make('data.output_type')
-                    ->label('Output Type')
-                    ->formatStateUsing(fn(?string $state): string => Str::of($state)->replace('_', ' ')->title())
-                    ->badge(),
-                Tables\Columns\TextColumn::make('data.publisher')->label('Publisher'),
-                Tables\Columns\TextColumn::make('data.date_published')->label('Date Published')->date(),
-                ScoreColumn::make('score'),
-            ],
-            'co_authorship' => [
-                Tables\Columns\TextColumn::make('data.title')->label('Title')->wrap(),
-                Tables\Columns\TextColumn::make('data.output_type')
-                    ->label('Output Type')
-                    ->formatStateUsing(fn(?string $state): string => Str::of($state)->replace('_', ' ')->title())
-                    ->badge(),
-                Tables\Columns\TextColumn::make('data.publisher')->label('Publisher'),
-                Tables\Columns\TextColumn::make('data.date_published')->label('Date Published')->date(),
-                Tables\Columns\TextColumn::make('data.contribution_percentage')
-                    ->label('% Contribution')
-                    ->suffix('%'),
-                ScoreColumn::make('score'),
-            ],
-            default => [],
-        };
     }
 
     protected function getTableHeaderActions(): array
     {
         return [
-            CreateAction::make()
+            Tables\Actions\CreateAction::make()
                 ->label('Add')
                 ->form($this->getFormSchema())
                 ->mutateFormDataUsing(function (array $data): array {
@@ -119,11 +141,8 @@ class PublishedPapersWidget extends BaseKRAWidget
                     $data['type'] = $this->getActiveSubmissionType();
                     return $data;
                 })
-                ->modalHeading(fn(): string => $this->activeTable === 'sole_authorship'
-                    ? 'Submit New Research Output (Sole Authorship)'
-                    : 'Submit New Research Output (Co-Authorship)')
-                ->modalWidth('3xl')
-                ->hidden(fn(): bool => $this->submissionExistsForCurrentType())
+                ->modalHeading($this->activeTable === 'sole_authorship' ? 'Submit New Sole Authored Output' : 'Submit New Co-Authored Output')
+                ->modalWidth('4xl')
                 ->after(fn() => $this->mount()),
         ];
     }
@@ -131,52 +150,47 @@ class PublishedPapersWidget extends BaseKRAWidget
     protected function getTableActions(): array
     {
         return [
-            EditAction::make()
+            ViewSubmissionFilesAction::make(),
+            Tables\Actions\EditAction::make()
                 ->form($this->getFormSchema())
-                ->modalHeading(fn(): string => $this->activeTable === 'sole_authorship'
-                    ? 'Edit Research Output (Sole Authorship)'
-                    : 'Edit Research Output (Co-Authorship)')
-                ->modalWidth('3xl')
+                ->modalHeading('Edit Research/Creative Output')
+                ->modalWidth('4xl')
                 ->visible($this->getActionVisibility()),
-            DeleteAction::make()
+            Tables\Actions\DeleteAction::make()
                 ->after(fn() => $this->mount())
                 ->visible($this->getActionVisibility()),
         ];
     }
 
+
     protected function getFormSchema(): array
     {
         $schema = [
-            Textarea::make('data.title')
-                ->label('Title of Research Output')
+            TextInput::make('data.title')
+                ->label('Title of Research/Creative Output')
                 ->maxLength(255)
                 ->required()
-                ->columnSpanFull(),
+                ->columnSpanFull()
+                ->live(),
 
             Select::make('data.output_type')
-                ->label('Type of Research Output')
+                ->label('Type of Output')
                 ->options([
-                    'book' => 'Book',
                     'journal_article' => 'Journal Article',
                     'book_chapter' => 'Book Chapter',
-                    'monograph' => 'Monograph',
-                    'other_peer_reviewed_output' => 'Other Peer-Reviewed Output',
+                    'book' => 'Book',
+                    'monograph' => 'Monograph/Thesis/Dissertation',
                 ])
-                ->required()
-                ->searchable()
+                ->default('journal_article')
                 ->live()
-                ->afterStateUpdated(function ($state, callable $set) {
-                    if ($state === 'journal_article') {
-                        $set('data.reviewer', null);
-                    } else {
-                        $set('data.indexing_body', null);
-                    }
-                }),
-
-            TextInput::make('data.publisher')
-                ->label('Name of Journal / Publisher')
-                ->maxLength(150)
                 ->required(),
+
+            TextInput::make('data.journal_name')
+                ->label('Journal/Publisher Name')
+                ->maxLength(150)
+                ->required()
+                ->visible(fn(Get $get): bool => $get('data.output_type') !== 'monograph')
+                ->live(),
 
             TextInput::make('data.reviewer')
                 ->label('Reviewer or Its Equivalent')
@@ -195,7 +209,8 @@ class PublishedPapersWidget extends BaseKRAWidget
                 ->native(false)
                 ->displayFormat('m/d/Y')
                 ->maxDate(now())
-                ->required(),
+                ->required()
+                ->live(),
         ];
 
         if ($this->activeTable === 'co_authorship') {
@@ -206,17 +221,13 @@ class PublishedPapersWidget extends BaseKRAWidget
                 ->required();
         }
 
-        $schema[] = FileUpload::make('google_drive_file_id')
-            ->label('Proof Document(s)')
-            ->multiple()
-            ->reorderable()
-            ->required()
-            ->disk('private')
-            ->directory(fn(): string => $this->activeTable === 'sole_authorship'
-                ? 'proof-documents/kra2-research-sole'
-                : 'proof-documents/kra2-research-co')
-            ->columnSpanFull();
+        $schema[] = Grid::make(3)
+            ->columnSpanFull()
+            ->schema([
+                $this->getKRAFileUploadComponent()->columnSpan(2),
 
+                $this->getAutofillAction(),
+            ]);
         return $schema;
     }
 }

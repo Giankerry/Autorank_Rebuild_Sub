@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use Google\Service\Drive;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Laravel\Socialite\Facades\Socialite;
@@ -16,7 +17,15 @@ class GoogleAuthController extends Controller
      */
     public function redirectToGoogle(): RedirectResponse
     {
-        return Socialite::driver('google')->redirect();
+        /** @var \Laravel\Socialite\Two\GoogleProvider $google */
+        $google = Socialite::driver('google');
+
+        return $google->scopes([Drive::DRIVE_FILE])
+            ->with([
+                'access_type' => 'offline',
+                'prompt' => 'consent'
+            ])
+            ->redirect();
     }
 
     /**
@@ -24,7 +33,12 @@ class GoogleAuthController extends Controller
      */
     public function handleGoogleCallback(Request $request): RedirectResponse
     {
-        $googleUser = Socialite::driver('google')->user();
+        try {
+            $googleUser = Socialite::driver('google')->user();
+        } catch (\Exception $e) {
+            return redirect()->route('filament.instructor.auth.login')
+                ->withErrors(['google_error' => 'Login with Google failed. Please make sure to grant permission to access your Google account.']);
+        }
 
         $user = User::updateOrCreate([
             'google_id' => $googleUser->id,
@@ -32,11 +46,10 @@ class GoogleAuthController extends Controller
             'name' => $googleUser->name,
             'email' => $googleUser->email,
             'google_token' => $googleUser->token,
-            'google_refresh_token' => $googleUser->refreshToken,
+            'google_refresh_token' => $googleUser->refreshToken ?? User::where('google_id', $googleUser->id)->first()?->google_refresh_token,
             'avatar_url' => $googleUser->getAvatar(),
         ]);
 
-        // Assign the 'Instructor' role to new users by default.
         if ($user->wasRecentlyCreated) {
             $user->assignRole('Instructor');
         }
@@ -50,8 +63,8 @@ class GoogleAuthController extends Controller
             return redirect()->intended('/admin');
         }
 
-        if ($user->hasRole('Evaluator')) {
-            return redirect()->intended('/evaluator');
+        if ($user->hasRole('Validator')) {
+            return redirect()->intended('/validator');
         }
 
         // Default redirect for Instructors

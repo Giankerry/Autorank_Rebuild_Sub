@@ -26,7 +26,6 @@ return new class extends Migration
             $table->string('google_id')->nullable()->unique();
             $table->text('google_token')->nullable();
             $table->text('google_refresh_token')->nullable();
-            $table->string('theme')->default('light');
             $table->rememberToken();
             $table->timestamps();
         });
