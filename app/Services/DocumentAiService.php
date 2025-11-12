@@ -46,14 +46,14 @@ class DocumentAiService
             $this->credentialsPath = base_path($envPath);
         }
     }
-
+    // Document AI client initialization
     protected function getClient(): DocumentProcessorServiceClient
     {
         return new DocumentProcessorServiceClient([
             'credentials' => $this->credentialsPath
         ]);
     }
-
+    // converts string to pascal case
     protected function toPascalCase(string $string): string
     {
         $snakeCase = Str::snake($string);
@@ -65,7 +65,7 @@ class DocumentAiService
         $content = $file->get();
         $mimeType = $file->getMimeType();
 
-        // Step 1 Classification
+        // Step 1 Classification of document
         $classificationResult = $this->classifyDocument($content, $mimeType);
         $documentType = $classificationResult['DocumentType'] ?? null; // This is already uppercase
 
@@ -123,7 +123,7 @@ class DocumentAiService
         $name = "projects/{$this->projectId}/locations/{$this->location}/processors/{$this->classificationProcessorId}";
         $client = $this->getClient();
 
-        try {
+        try { // send classification request
             $request = (new ProcessRequest())
                 ->setName($name)
                 ->setRawDocument(
@@ -135,7 +135,7 @@ class DocumentAiService
 
             $documentType = null;
             $classificationResult = [];
-
+            // extract the primary document type
             foreach ($document->getEntities() as $entity) {
                 $documentType = $entity->getType() ?? null;
                 break;
@@ -175,20 +175,22 @@ class DocumentAiService
 
             $response = $client->processDocument($request);
             $document = $response->getDocument();
-
+            // extract entities
             $extractedEntities = [];
             foreach ($document->getEntities() as $entity) {
-                $key = $this->toPascalCase($entity->getType() ?: 'Unknown');
-                $value = $entity->getMentionText() ?: null;
+                $key = $this->toPascalCase($entity->getType() ?? 'Unknown');
+                $value = $entity->getMentionText() ?? null;
                 $extractedEntities[$key] = $value;
             }
-
+            // show extracted entities info log
             Log::info('Extracted entities', $extractedEntities);
             return $extractedEntities;
         } catch (\Exception $e) {
+            //returns error log and notification
             Log::error("Document AI Extraction Error: " . $e->getMessage());
             return [];
         } finally {
+            // close the client
             $client->close();
         }
     }

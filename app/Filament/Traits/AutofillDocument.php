@@ -2,11 +2,13 @@
 
 namespace App\Filament\Traits;
 
-use App\Services\DocumentAiService; //imports for Doc AI and autofill
+use App\Services\DocumentAiService;
 use Filament\Forms\Components\Actions;
 use Filament\Forms\Components\Actions\Action;
-use Filament\Forms\Get;
-use Filament\Forms\Set; // for getting and setting form values for autofill
+use Filament\Forms\Components\Group; // used to group button and notice
+use Filament\Forms\Components\Placeholder; //used for notice
+use Filament\Forms\Get; // to get form values
+use Filament\Forms\Set; // to set form values
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Log;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -26,94 +28,115 @@ trait AutofillDocument
 
 
     // The general autofill action for all document types
-    protected function getAutofillAction(): Actions
+    protected function getAutofillAction(): Group
     {
-        return Actions::make([
-            Action::make('autofill_document')
-                ->label('Autofill from Document')
-                ->icon('heroicon-s-sparkles')
-                ->color('warning')
-                ->action(function (Set $set, Get $get) {
-                    $files = $get('google_drive_file_id');
+        $isFileUploaded = fn(Get $get) => !empty($get('google_drive_file_id'));
+        $noticeText = '(!) Note : Upload a document first to activate autofill.';
+        $noticeColor = fn(Get $get) => $isFileUploaded($get) ? 'text-yellow-600' : 'text-gray-500';
 
-                    if (empty($files)) {
-                        Notification::make()->title('No File Uploaded')->body('Please upload a document first.')->warning()->send();
-                        return;
-                    }
-                    // find the latest temporary file
-                    $fileToProcess = null;
-                    foreach (array_reverse($files) as $file) {
-                        if ($file instanceof TemporaryUploadedFile) {
-                            $fileToProcess = $file;
-                            break;
+        return Group::make([
+            //initialize the actions component
+            Actions::make([ // button content and logic
+                Action::make('autofill_document')
+                    ->label('Check and Autofill')
+                    ->icon('heroicon-s-sparkles')
+
+                    // Dynamic Color
+                    ->color(fn(Get $get) => $isFileUploaded($get) ? 'warning' : 'secondary')
+
+                    // Disabes the button when file upload is empty
+                    ->disabled(fn(Get $get) => !$isFileUploaded($get))
+
+                    // Action Logic
+                    ->action(function (Set $set, Get $get) {
+                        $files = $get('google_drive_file_id');
+
+                        if (empty($files)) {
+                            Notification::make()->title('No File Uploaded')->body('Please upload a document first.')->warning()->send();
+                            return;
                         }
-                    }
-                    // if no file found
-                    if (!$fileToProcess) {
-                        Notification::make()->title('File Not Ready')->body('Please ensure the file upload is complete or try reloading the form.')->warning()->send();
-                        return;
-                    }
 
-                    try {
-                        $docAiService = app(DocumentAiService::class);
-                        $extractedData = $docAiService->processDocument($fileToProcess);
+                        $fileToProcess = null;
+                        foreach (array_reverse($files) as $file) {
+                            if ($file instanceof TemporaryUploadedFile) {
+                                $fileToProcess = $file;
+                                break;
+                            }
+                        }
 
-                        // Get flags from the service
-                        $isCertificate = $extractedData['IsCertificate'] ?? false;
-                        $isMoa = $extractedData['IsMoa'] ?? false;
-                        $isResearch = $extractedData['IsResearch'] ?? false;
-                        $docType = $extractedData['DocumentType'] ?? 'Unknown';
+                        if (!$fileToProcess) {
+                            Notification::make()->title('File Not Ready')->body('Please ensure the file upload is complete or try reloading the form.')->warning()->send();
+                            return;
+                        }
 
+                        try {
+                            //check document type using Doc ai
+                            $docAiService = app(DocumentAiService::class);
+                            $extractedData = $docAiService->processDocument($fileToProcess);
 
-                        if ($isCertificate) {
-                            // certificate/diploma checks
-                            $credentialType = Str::title(strtolower($extractedData['CredentialType'] ?? null));
-                            $dateCompleted = $extractedData['DateCompleted'] ?? $extractedData['YearIssued'] ?? null;
-                            $issuingOrg = Str::title(strtolower($extractedData['IssuingOrganization'] ?? null));
-                            $venue = Str::title(strtolower($extractedData['AwardVenue'] ?? null));
+                            $isCertificate = $extractedData['IsCertificate'] ?? false;
+                            $isMoa = $extractedData['IsMoa'] ?? false;
+                            $isResearch = $extractedData['IsResearch'] ?? false;
+                            $docType = $extractedData['DocumentType'] ?? 'Unknown';
 
-                            $this->mapCertificateDataToForm($set, $get, $credentialType, $dateCompleted, $issuingOrg, $venue);
-                            Notification::make()->title('AI Extraction Successful')->body('Document details were extracted and autofilled.')->success()->send();
-                        } elseif ($isMoa) {
-                            //check if moa
-                            $partnerName = Str::title(strtolower($extractedData['PartnerName'] ?? null));
-                            $startDate = $extractedData['DateOfEffectivity'] ?? null;
-                            $expirationDate = $extractedData['ExpirationDate'] ?? null;
-                            $scope = $extractedData['Scope'] ?? null;
+                            //checks document type and map data accordingly
+                            if ($isCertificate) {
+                                $credentialType = Str::title(strtolower($extractedData['CredentialType'] ?? null));
+                                $dateCompleted = $extractedData['DateCompleted'] ?? $extractedData['YearIssued'] ?? null;
+                                $issuingOrg = Str::title(strtolower($extractedData['IssuingOrganization'] ?? null));
+                                $venue = Str::title(strtolower($extractedData['AwardVenue'] ?? null));
 
-                            $this->mapMoaDataToForm($set, $get, $partnerName, $startDate, $expirationDate, $scope);
-                            Notification::make()->title('AI Extraction Successful')->body('Agreement details were extracted and autofilled.')->success()->send();
-                        } elseif ($isResearch) {
-                            // check if research/thesis
-                            $title = $extractedData['Title'] ?? null;
-                            $authorList = $extractedData['AuthorList'] ?? null;
-                            $publisher = Str::title(strtolower($extractedData['Publisher'] ?? null));
-                            $datePublished = $extractedData['DatePublished'] ?? null;
+                                $this->mapCertificateDataToForm($set, $get, $credentialType, $dateCompleted, $issuingOrg, $venue);
+                                Notification::make()->title('AI Extraction Successful')->body('Document details were extracted and autofilled.')->success()->send();
+                            } elseif ($isMoa) {
+                                $partnerName = Str::title(strtolower($extractedData['PartnerName'] ?? null));
+                                $startDate = $extractedData['DateOfEffectivity'] ?? null;
+                                $expirationDate = $extractedData['ExpirationDate'] ?? null;
+                                $scope = $extractedData['Scope'] ?? null;
 
-                            $this->mapResearchDataToForm($set, $get, $title, $authorList, $publisher, $datePublished, $docType);
-                            Notification::make()->title('AI Extraction Successful')->body('Research/Thesis details were extracted and autofilled.')->success()->send();
-                        } else {
-                            // document type not recognized fail message
-                            Log::warning("Autofill failed: Document type '{$docType}' is not supported by this form.");
+                                $this->mapMoaDataToForm($set, $get, $partnerName, $startDate, $expirationDate, $scope);
+                                Notification::make()->title('AI Extraction Successful')->body('Agreement details were extracted and autofilled.')->success()->send();
+                            } elseif ($isResearch) {
+                                $title = $extractedData['Title'] ?? null;
+                                $authorList = $extractedData['AuthorList'] ?? null;
+                                $publisher = Str::title(strtolower($extractedData['Publisher'] ?? null));
+                                $datePublished = $extractedData['DatePublished'] ?? null;
+
+                                $this->mapResearchDataToForm($set, $get, $title, $authorList, $publisher, $datePublished, $docType);
+                                Notification::make()->title('AI Extraction Successful')->body('Research/Thesis details were extracted and autofilled.')->success()->send();
+                            } else {
+                                Log::warning("Autofill failed: Document type '{$docType}' is not supported by this form.");
+                                Notification::make()
+                                    ->title('Document Not Supported')
+                                    ->body("The document type '{$docType}' is not supported for autofill in this form.")
+                                    ->warning()
+                                    ->send();
+                            }
+                        } catch (\Exception $e) {
+                            //returns error log and notification
+                            Log::error("Document AI Button Error: " . $e->getMessage());
                             Notification::make()
-                                ->title('Document Not Supported')
-                                ->body("The document type '{$docType}' is not supported for autofill in this form.")
-                                ->warning()
+                                ->title('Document AI Error')
+                                ->body('The document uploaded could be invalid or surpassed the number of pages allowed for autofill.')
+                                ->danger()
                                 ->send();
                         }
-                    } catch (\Exception $e) { // general error catch
-                        Log::error("Document AI Button Error: " . $e->getMessage());
-                        Notification::make()
-                            ->title('Document AI Error')
-                            ->body('The document uploaded could be invalid or surpassed the number of pages allowed for autofill.')
-                            ->danger()
-                            ->send();
-                    }
-                })
-                ->extraAttributes([
-                    'class' => 'mt-8',
-                ])
-                ->visible(fn(Get $get) => !empty($get('google_drive_file_id'))),
-        ])->columnSpan(1);
+                    })
+                    // increase width
+                    ->extraAttributes([
+                        'class' => 'w-full',
+                    ]),
+            ])->columnSpanFull(),
+
+            //placeholder used for notice
+            Placeholder::make('')
+                ->content($noticeText)
+                ->extraAttributes(fn(Get $get) => [
+                    'class' => 'text-gray-500 text-xs font-semibold px-1 pt-1 text-center ' . $noticeColor($get),
+                ]),
+        ])
+            ->columnSpan(1)
+            // align contents to the bottom of the grid
+            ->extraAttributes(['class' => 'flex flex-col justify-end h-full']);
     }
 }

@@ -188,12 +188,11 @@ class LinkagesWidget extends BaseKRAWidget
                 ->required()
                 ->maxDate(now()),
 
-            // FIX: Correctly merged Grid
             Grid::make(3)
                 ->columnSpanFull()
                 ->schema([
                     $this->getKRAFileUploadComponent()->columnSpan(2),
-                    $this->getAutofillAction(),
+                    $this->getAutofillAction(), 
                 ]),
         ];
     }
