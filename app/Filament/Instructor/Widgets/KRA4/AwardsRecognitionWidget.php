@@ -29,7 +29,7 @@ use Illuminate\Support\Facades\Log;
 use App\Filament\Traits\AutofillDocument;
 use App\Filament\Traits\HandlesKRAFileUploads;
 use App\Tables\Actions\ViewSubmissionFilesAction;
-use Filament\Forms\Components\FileUpload; 
+use Filament\Forms\Components\FileUpload;
 
 class AwardsRecognitionWidget extends BaseKRAWidget
 {
@@ -93,7 +93,7 @@ class AwardsRecognitionWidget extends BaseKRAWidget
                 ScoreColumn::make('score'),
             ])
             ->headerActions([
-                CreateAction::make()
+                Tables\Actions\CreateAction::make()
                     ->label('Add')
                     ->form($this->getFormSchema())
                     ->disabled(function () {
@@ -121,14 +121,23 @@ class AwardsRecognitionWidget extends BaseKRAWidget
                     ->modalHeading('Edit Award/Recognition')
                     ->modalWidth('3xl')
                     ->visible($this->getActionVisibility()),
-                DeleteAction::make()
+                Tables\Actions\DeleteAction::make()
                     ->after(fn() => $this->mount())
                     ->visible($this->getActionVisibility()),
-            ]);
+            ])
+            ->paginated(!$this->validation_mode)
+            ->emptyStateHeading($this->getTableEmptyStateHeading())
+            ->emptyStateDescription($this->getTableEmptyStateDescription());
     }
 
     protected function getTableQuery(): Builder
     {
+        if ($this->validation_mode) {
+            return Submission::query()
+                ->where('application_id', $this->record->id)
+                ->where('type', $this->getActiveSubmissionType());
+        }
+
         return Submission::query()
             ->where('user_id', Auth::id())
             ->where('type', $this->getActiveSubmissionType())
@@ -198,6 +207,55 @@ class AwardsRecognitionWidget extends BaseKRAWidget
                     $this->getAutofillAction(),
                 ]),
 
+        ];
+    }
+
+    protected function getTableHeaderActions(): array
+    {
+        return [
+            Tables\Actions\CreateAction::make()
+                ->label('Add')
+                ->form($this->getFormSchema())
+                ->disabled(function () {
+                    $application = Application::find($this->selectedApplicationId);
+                    if (!$application) {
+                        return true;
+                    }
+                    return $application->status !== 'Draft';
+                })
+                ->mutateFormDataUsing(function (array $data): array {
+                    $data['user_id'] = Auth::id();
+                    $data['application_id'] = $this->selectedApplicationId;
+                    $data['category'] = $this->getKACategory();
+                    $data['type'] = $this->getActiveSubmissionType();
+                    return $data;
+                })
+                ->modalHeading('Submit New Award/Recognition')
+                ->modalWidth('3xl')
+                ->hidden($this->validation_mode)
+                ->after(fn() => $this->mount()),
+        ];
+    }
+
+    protected function getTableActions(): array
+    {
+        if ($this->validation_mode) {
+            return [
+                $this->getViewFilesAction(),
+                $this->getValidateSubmissionAction(),
+            ];
+        }
+
+        return [
+            ViewSubmissionFilesAction::make(),
+            Tables\Actions\EditAction::make()
+                ->form($this->getFormSchema())
+                ->modalHeading('Edit Award/Recognition')
+                ->modalWidth('3xl')
+                ->visible($this->getActionVisibility()),
+            Tables\Actions\DeleteAction::make()
+                ->after(fn() => $this->mount())
+                ->visible($this->getActionVisibility()),
         ];
     }
 }

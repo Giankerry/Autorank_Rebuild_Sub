@@ -87,7 +87,7 @@ class BonusCriterionWidget extends BaseKRAWidget
 
     public function table(Table $table): Table
     {
-        return $table
+        $table = $table
             ->query(fn(): Builder => $this->getTableQuery())
             ->heading('Administrative Designations')
             ->columns([
@@ -100,48 +100,82 @@ class BonusCriterionWidget extends BaseKRAWidget
                 Tables\Columns\TextColumn::make('data.period_end')->label('Effectivity End')->date('m/d/Y'),
                 ScoreColumn::make('score'),
             ])
-            ->headerActions([
-                Tables\Actions\CreateAction::make()
-                    ->label('Add')
-                    ->form($this->getFormSchema())
-                    ->disabled(function () {
-                        $application = Application::find($this->selectedApplicationId);
-                        if (!$application) {
-                            return true;
-                        }
-                        return $application->status !== 'draft';
-                    })
-                    ->mutateFormDataUsing(function (array $data): array {
-                        $data['user_id'] = Auth::id();
-                        $data['application_id'] = $this->selectedApplicationId;
-                        $data['category'] = $this->getKACategory();
-                        $data['type'] = $this->getActiveSubmissionType();
-                        return $data;
-                    })
-                    ->modalHeading('Submit Administrative Designation')
-                    ->modalWidth('2xl')
-                    ->hidden(fn(): bool => $this->submissionExistsForCurrentType())
-                    ->after(fn() => $this->mount()),
-            ])
-            ->actions([
-                ViewSubmissionFilesAction::make(),
-                Tables\Actions\EditAction::make()
-                    ->form($this->getFormSchema())
-                    ->modalHeading('Edit Administrative Designation')
-                    ->modalWidth('2xl')
-                    ->visible($this->getActionVisibility()),
-                Tables\Actions\DeleteAction::make()
-                    ->after(fn() => $this->mount())
-                    ->visible($this->getActionVisibility()),
-            ]);
+            ->headerActions($this->getTableHeaderActions())
+            ->actions($this->getTableActions())
+            ->paginated(!$this->validation_mode)
+            ->emptyStateHeading($this->getTableEmptyStateHeading())
+            ->emptyStateDescription($this->getTableEmptyStateDescription());
+
+        if (!$this->validation_mode) {
+            $table->checkIfRecordIsSelectableUsing(
+                fn(Submission $record): bool => !$this->submissionExistsForCurrentType() || $record->id === $this->getCurrentSubmissionId()
+            );
+        }
+
+        return $table;
     }
 
     protected function getTableQuery(): Builder
     {
+        if ($this->validation_mode) {
+            return Submission::query()
+                ->where('application_id', $this->record->id)
+                ->where('type', $this->getActiveSubmissionType());
+        }
+
         return Submission::query()
             ->where('user_id', Auth::id())
             ->where('type', $this->getActiveSubmissionType())
             ->where('application_id', $this->selectedApplicationId);
+    }
+
+    protected function getTableHeaderActions(): array
+    {
+        return [
+            Tables\Actions\CreateAction::make()
+                ->label('Add')
+                ->form($this->getFormSchema())
+                ->disabled(function () {
+                    $application = Application::find($this->selectedApplicationId);
+                    if (!$application) {
+                        return true;
+                    }
+                    return $application->status !== 'Draft';
+                })
+                ->mutateFormDataUsing(function (array $data): array {
+                    $data['user_id'] = Auth::id();
+                    $data['application_id'] = $this->selectedApplicationId;
+                    $data['category'] = $this->getKACategory();
+                    $data['type'] = $this->getActiveSubmissionType();
+                    return $data;
+                })
+                ->modalHeading('Submit Administrative Designation')
+                ->modalWidth('2xl')
+                ->hidden(fn(): bool => $this->submissionExistsForCurrentType() || $this->validation_mode)
+                ->after(fn() => $this->mount()),
+        ];
+    }
+
+    protected function getTableActions(): array
+    {
+        if ($this->validation_mode) {
+            return [
+                $this->getViewFilesAction(),
+                $this->getValidateSubmissionAction(),
+            ];
+        }
+
+        return [
+            $this->getViewFilesAction(),
+            Tables\Actions\EditAction::make()
+                ->form($this->getFormSchema())
+                ->modalHeading('Edit Administrative Designation')
+                ->modalWidth('2xl')
+                ->visible($this->getActionVisibility()),
+            Tables\Actions\DeleteAction::make()
+                ->after(fn() => $this->mount())
+                ->visible($this->getActionVisibility()),
+        ];
     }
 
     protected function getFormSchema(): array

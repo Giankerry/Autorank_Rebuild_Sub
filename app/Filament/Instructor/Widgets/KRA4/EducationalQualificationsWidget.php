@@ -102,7 +102,7 @@ class EducationalQualificationsWidget extends BaseKRAWidget
 
     public function table(Table $table): Table
     {
-        return $table
+        $table = $table
             ->query(fn(): Builder => $this->getTableQuery())
             ->heading('Educational Qualifications')
             ->columns([
@@ -120,11 +120,28 @@ class EducationalQualificationsWidget extends BaseKRAWidget
                 ScoreColumn::make('score'),
             ])
             ->headerActions($this->getTableHeaderActions())
-            ->actions($this->getTableActions());
+            ->actions($this->getTableActions())
+            ->paginated(!$this->validation_mode)
+            ->emptyStateHeading($this->getTableEmptyStateHeading())
+            ->emptyStateDescription($this->getTableEmptyStateDescription());
+
+        if (!$this->validation_mode) {
+            $table->checkIfRecordIsSelectableUsing(
+                fn(Submission $record): bool => !$this->submissionExistsForCurrentType() || $record->id === $this->getCurrentSubmissionId()
+            );
+        }
+
+        return $table;
     }
 
     protected function getTableQuery(): Builder
     {
+        if ($this->validation_mode) {
+            return Submission::query()
+                ->where('application_id', $this->record->id)
+                ->where('type', $this->getActiveSubmissionType());
+        }
+
         return Submission::query()
             ->where('user_id', Auth::id())
             ->where('type', $this->getActiveSubmissionType())
@@ -142,7 +159,7 @@ class EducationalQualificationsWidget extends BaseKRAWidget
                     if (!$application) {
                         return true;
                     }
-                    return $application->status !== 'draft';
+                    return $application->status !== 'Draft';
                 })
                 ->mutateFormDataUsing(function (array $data): array {
                     $data['user_id'] = Auth::id();
@@ -153,12 +170,20 @@ class EducationalQualificationsWidget extends BaseKRAWidget
                 })
                 ->modalHeading('Submit New Educational Qualification')
                 ->modalWidth('3xl')
+                ->hidden(fn(): bool => $this->submissionExistsForCurrentType() || $this->validation_mode)
                 ->after(fn() => $this->mount()),
         ];
     }
 
     protected function getTableActions(): array
     {
+        if ($this->validation_mode) {
+            return [
+                $this->getViewFilesAction(),
+                $this->getValidateSubmissionAction(),
+            ];
+        }
+
         return [
             ViewSubmissionFilesAction::make(),
             Tables\Actions\EditAction::make()

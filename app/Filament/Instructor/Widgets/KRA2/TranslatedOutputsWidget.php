@@ -80,13 +80,19 @@ class TranslatedOutputsWidget extends BaseKRAWidget
             ->columns($this->getTableColumns())
             ->headerActions($this->getTableHeaderActions())
             ->actions($this->getTableActions())
-            ->checkIfRecordIsSelectableUsing(
-                fn(Submission $record): bool => !$this->submissionExistsForCurrentType() || $record->id === $this->getCurrentSubmissionId()
-            );
+            ->paginated(!$this->validation_mode)
+            ->emptyStateHeading($this->getTableEmptyStateHeading())
+            ->emptyStateDescription($this->getTableEmptyStateDescription());
     }
 
     protected function getTableQuery(): Builder
     {
+        if ($this->validation_mode) {
+            return Submission::query()
+                ->where('application_id', $this->record->id)
+                ->where('type', $this->getActiveSubmissionType());
+        }
+
         return Submission::query()
             ->where('user_id', Auth::id())
             ->where('type', $this->getActiveSubmissionType())
@@ -133,7 +139,7 @@ class TranslatedOutputsWidget extends BaseKRAWidget
                     if (!$application) {
                         return true;
                     }
-                    return $application->status !== 'draft';
+                    return $application->status !== 'Draft';
                 })
                 ->mutateFormDataUsing(function (array $data): array {
                     $data['user_id'] = Auth::id();
@@ -144,12 +150,20 @@ class TranslatedOutputsWidget extends BaseKRAWidget
                 })
                 ->modalHeading(fn(): string => 'Submit New Translated Output (' . Str::of($this->activeTable)->replace('_', ' ')->title() . ')')
                 ->modalWidth('3xl')
+                ->hidden($this->validation_mode)
                 ->after(fn() => $this->mount()),
         ];
     }
 
     protected function getTableActions(): array
     {
+        if ($this->validation_mode) {
+            return [
+                $this->getViewFilesAction(),
+                $this->getValidateSubmissionAction(),
+            ];
+        }
+
         return [
             ViewSubmissionFilesAction::make(),
             EditAction::make()

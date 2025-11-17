@@ -2,29 +2,25 @@
 
 namespace App\Providers\Filament;
 
-use App\Filament\Traits\AppliesCommonPanelBranding;
-use App\Filament\Instructor\Auth\Login;
+use App\Filament\Traits\AppliesCommonPanelBranding; // Added for consistency
+use App\Filament\Traits\ManagesPanelColors; // Added for consistency
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Pages;
 use Filament\Panel;
 use Filament\PanelProvider;
-use App\Filament\Traits\ManagesPanelColors;
 use Filament\Widgets;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
-use App\Filament\Instructor\Widgets\WelcomeWidget;
-use App\Filament\Instructor\Widgets\ScoreSummary;
-use App\Filament\Pages\GoogleSettings;
-use Illuminate\Routing\Middleware\ThrottleRequests;
 
-class InstructorPanelProvider extends PanelProvider
+class ValidatorPanelProvider extends PanelProvider
 {
     use AppliesCommonPanelBranding;
     use ManagesPanelColors;
@@ -34,23 +30,21 @@ class InstructorPanelProvider extends PanelProvider
         $panel = $this->applySharedBranding($panel);
 
         return $panel
-            ->id('instructor')
-            ->path('instructor')
-            ->login(Login::class)
+            ->id('validator')
+            ->path('validator')
+            ->login()
             ->colors($this->getPanelColors())
             ->font('Archivo')
             ->databaseNotifications()
             ->databaseNotificationsPolling('10s')
-            ->discoverResources(in: app_path('Filament/Instructor/Resources'), for: 'App\\Filament\\Instructor\\Resources')
-            ->discoverPages(in: app_path('Filament/Instructor/Pages'), for: 'App\\Filament\\Instructor\\Pages')
+            ->discoverResources(in: app_path('Filament/Validator/Resources'), for: 'App\\Filament\\Validator\\Resources')
+            ->discoverPages(in: app_path('Filament/Validator/Pages'), for: 'App\\Filament\\Validator\\Pages')
             ->pages([
                 Pages\Dashboard::class,
-                GoogleSettings::class,
             ])
-            ->discoverWidgets(in: app_path('Filament/Instructor/Widgets'), for: 'App\\Filament\\Instructor\\Widgets')
+            ->discoverWidgets(in: app_path('Filament/Validator/Widgets'), for: 'App\\Filament\\Validator\\Widgets')
             ->widgets([
-                WelcomeWidget::class,
-                ScoreSummary::class,
+                Widgets\AccountWidget::class,
             ])
             ->middleware([
                 ThrottleRequests::class . ':filament',

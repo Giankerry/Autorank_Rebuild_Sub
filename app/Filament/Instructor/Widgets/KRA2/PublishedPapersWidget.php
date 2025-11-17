@@ -126,11 +126,20 @@ class PublishedPapersWidget extends BaseKRAWidget
                 ScoreColumn::make('score'),
             ])
             ->headerActions($this->getTableHeaderActions())
-            ->actions($this->getTableActions());
+            ->actions($this->getTableActions())
+            ->paginated(!$this->validation_mode)
+            ->emptyStateHeading($this->getTableEmptyStateHeading())
+            ->emptyStateDescription($this->getTableEmptyStateDescription());
     }
 
     protected function getTableQuery(): Builder
     {
+        if ($this->validation_mode) {
+            return Submission::query()
+                ->where('application_id', $this->record->id)
+                ->where('type', $this->getActiveSubmissionType());
+        }
+
         return Submission::query()
             ->where('user_id', Auth::id())
             ->where('category', $this->getKACategory())
@@ -149,7 +158,7 @@ class PublishedPapersWidget extends BaseKRAWidget
                     if (!$application) {
                         return true;
                     }
-                    return $application->status !== 'draft';
+                    return $application->status !== 'Draft';
                 })
                 ->mutateFormDataUsing(function (array $data): array {
                     $data['user_id'] = Auth::id();
@@ -158,14 +167,24 @@ class PublishedPapersWidget extends BaseKRAWidget
                     $data['type'] = $this->getActiveSubmissionType();
                     return $data;
                 })
-                ->modalHeading($this->activeTable === 'sole_authorship' ? 'Submit New Sole Authored Output' : 'Submit New Co-Authored Output')
-                ->modalWidth('4xl')
+                ->modalHeading(fn(): string => $this->activeTable === 'sole_authorship'
+                    ? 'Submit New Research Output (Sole Authorship)'
+                    : 'Submit New Research Output (Co-Authorship)')
+                ->modalWidth('3xl')
+                ->hidden($this->validation_mode)
                 ->after(fn() => $this->mount()),
         ];
     }
 
     protected function getTableActions(): array
     {
+        if ($this->validation_mode) {
+            return [
+                $this->getViewFilesAction(),
+                $this->getValidateSubmissionAction(),
+            ];
+        }
+
         return [
             ViewSubmissionFilesAction::make(),
             Tables\Actions\EditAction::make()

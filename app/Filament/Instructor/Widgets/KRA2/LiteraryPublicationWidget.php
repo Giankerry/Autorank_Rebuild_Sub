@@ -9,6 +9,9 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Tables;
+use Filament\Tables\Actions\CreateAction;
+use Filament\Tables\Actions\DeleteAction;
+use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Table;
 use App\Filament\Instructor\Widgets\BaseKRAWidget;
 use Illuminate\Database\Eloquent\Builder;
@@ -79,47 +82,74 @@ class LiteraryPublicationWidget extends BaseKRAWidget
                 Tables\Columns\TextColumn::make('data.date_published')->label('Date Published')->date('m/d/Y'),
                 ScoreColumn::make('score'),
             ])
-            ->headerActions([
-                Tables\Actions\CreateAction::make()
-                    ->label('Add')
-                    ->form($this->getFormSchema())
-                    ->disabled(function () {
-                        $application = Application::find($this->selectedApplicationId);
-                        if (!$application) {
-                            return true;
-                        }
-                        return $application->status !== 'draft';
-                    })
-                    ->mutateFormDataUsing(function (array $data): array {
-                        $data['user_id'] = Auth::id();
-                        $data['application_id'] = $this->selectedApplicationId;
-                        $data['category'] = $this->getKACategory();
-                        $data['type'] = $this->getActiveSubmissionType();
-                        return $data;
-                    })
-                    ->modalHeading('Submit New Literary Publication')
-                    ->modalWidth('3xl')
-                    ->after(fn() => $this->mount()),
-            ])
-            ->actions([
-                ViewSubmissionFilesAction::make(),
-                Tables\Actions\EditAction::make()
-                    ->form($this->getFormSchema())
-                    ->modalHeading('Edit Literary Publication')
-                    ->modalWidth('3xl')
-                    ->visible($this->getActionVisibility()),
-                Tables\Actions\DeleteAction::make()
-                    ->after(fn() => $this->mount())
-                    ->visible($this->getActionVisibility()),
-            ]);
+            ->headerActions($this->getTableHeaderActions())
+            ->actions($this->getTableActions())
+            ->paginated(!$this->validation_mode)
+            ->emptyStateHeading($this->getTableEmptyStateHeading())
+            ->emptyStateDescription($this->getTableEmptyStateDescription());
     }
 
     protected function getTableQuery(): Builder
     {
+        if ($this->validation_mode) {
+            return Submission::query()
+                ->where('application_id', $this->record->id)
+                ->where('type', $this->getActiveSubmissionType());
+        }
+
         return Submission::query()
             ->where('user_id', Auth::id())
             ->where('type', $this->getActiveSubmissionType())
             ->where('application_id', $this->selectedApplicationId);
+    }
+
+    protected function getTableHeaderActions(): array
+    {
+        return [
+            Tables\Actions\CreateAction::make()
+                ->label('Add')
+                ->form($this->getFormSchema())
+                ->disabled(function () {
+                    $application = Application::find($this->selectedApplicationId);
+                    if (!$application) {
+                        return true;
+                    }
+                    return $application->status !== 'Draft';
+                })
+                ->mutateFormDataUsing(function (array $data): array {
+                    $data['user_id'] = Auth::id();
+                    $data['application_id'] = $this->selectedApplicationId;
+                    $data['category'] = $this->getKACategory();
+                    $data['type'] = $this->getActiveSubmissionType();
+                    return $data;
+                })
+                ->modalHeading('Submit New Literary Publication')
+                ->modalWidth('3xl')
+                ->hidden($this->validation_mode)
+                ->after(fn() => $this->mount()),
+        ];
+    }
+
+    protected function getTableActions(): array
+    {
+        if ($this->validation_mode) {
+            return [
+                $this->getViewFilesAction(),
+                $this->getValidateSubmissionAction(),
+            ];
+        }
+
+        return [
+            ViewSubmissionFilesAction::make(),
+            Tables\Actions\EditAction::make()
+                ->form($this->getFormSchema())
+                ->modalHeading('Edit Literary Publication')
+                ->modalWidth('3xl')
+                ->visible($this->getActionVisibility()),
+            Tables\Actions\DeleteAction::make()
+                ->after(fn() => $this->mount())
+                ->visible($this->getActionVisibility()),
+        ];
     }
 
     protected function getFormSchema(): array

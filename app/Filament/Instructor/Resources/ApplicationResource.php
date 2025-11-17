@@ -49,7 +49,7 @@ class ApplicationResource extends Resource
                     ->searchable()
                     ->required(),
                 Textarea::make('remarks')
-                    ->label('Evaluator Remarks')
+                    ->label('Validator Remarks')
                     ->columnSpanFull()
                     ->disabled(),
             ]);
@@ -66,10 +66,10 @@ class ApplicationResource extends Resource
                 Tables\Columns\TextColumn::make('status')
                     ->badge()
                     ->color(fn(string $state): string => match ($state) {
-                        'draft' => 'gray',
+                        'Draft' => 'gray',
                         'Pending Validation' => 'warning',
-                        'validated' => 'success',
-                        'rejected' => 'danger',
+                        'Validated' => 'success',
+                        'Rejected' => 'danger',
                         default => 'primary',
                     }),
                 ScoreColumn::make('final_score')
@@ -99,7 +99,7 @@ class ApplicationResource extends Resource
                     //         return filament()->getUrl();
                     //     }),
                     EditAction::make()
-                        ->visible(fn(Application $record): bool => $record->status === 'draft'),
+                        ->visible(fn(Application $record): bool => $record->status === 'Draft'),
                     Action::make('submitForValidation')
                         ->label('Submit for Validation')
                         ->icon('heroicon-o-check-circle')
@@ -107,7 +107,7 @@ class ApplicationResource extends Resource
                         ->requiresConfirmation()
                         ->modalHeading('Submit Application')
                         ->modalDescription('This will calculate the final score and submit your application. You will no longer be able to edit it. Are you sure?')
-                        ->visible(fn(Application $record): bool => $record->status === 'draft')
+                        ->visible(fn(Application $record): bool => $record->status === 'Draft')
                         ->action(function (Application $record, ApplicationScoringService $appScoringService, Component $livewire) {
                             $appScoringService->calculateScore($record);
                             $record->applicant_current_rank = $record->user->facultyRank?->name ?? 'N/A';
@@ -123,14 +123,14 @@ class ApplicationResource extends Resource
                             $livewire->dispatch('refresh');
                         }),
                     DeleteAction::make()
-                        ->visible(fn(Application $record): bool => $record->status === 'draft'),
+                        ->visible(fn(Application $record): bool => $record->status === 'Draft'),
                 ])
-            ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
             ]);
+        // ->bulkActions([
+        //     Tables\Actions\BulkActionGroup::make([
+        //         Tables\Actions\DeleteBulkAction::make(),
+        //     ]),
+        // ]);
     }
 
     public static function getRelations(): array

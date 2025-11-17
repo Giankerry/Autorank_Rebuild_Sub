@@ -73,7 +73,7 @@ class QualityOfExtensionWidget extends BaseKRAWidget
 
     public function table(Table $table): Table
     {
-        return $table
+        $table = $table
             ->query(fn(): Builder => $this->getTableQuery())
             ->heading('Client Satisfaction Rating Submission')
             ->columns([
@@ -88,46 +88,29 @@ class QualityOfExtensionWidget extends BaseKRAWidget
 
                 ScoreColumn::make('score'),
             ])
-            ->headerActions([
-                CreateAction::make()
-                    ->label('Add')
-                    ->form($this->getFormSchema())
-                    ->disabled(function () {
-                        $application = Application::find($this->selectedApplicationId);
-                        if (!$application) {
-                            return true;
-                        }
-                        return $application->status !== 'draft';
-                    })
-                    ->mutateFormDataUsing(function (array $data): array {
-                        $data['user_id'] = Auth::id();
-                        $data['application_id'] = $this->selectedApplicationId;
-                        $data['category'] = $this->getKACategory();
-                        $data['type'] = $this->getActiveSubmissionType();
-                        return $data;
-                    })
-                    ->modalHeading('Submit Client Satisfaction Ratings')
-                    ->modalWidth('4xl')
-                    ->hidden(fn(): bool => $this->submissionExistsForCurrentType())
-                    ->after(fn() => $this->mount()),
-            ])
-            ->actions([
-                ViewSubmissionFilesAction::make(),
+            ->headerActions($this->getTableHeaderActions())
+            ->actions($this->getTableActions())
+            ->paginated(!$this->validation_mode)
+            ->emptyStateHeading($this->getTableEmptyStateHeading())
+            ->emptyStateDescription($this->getTableEmptyStateDescription());
 
-                EditAction::make()
-                    ->label('Edit Rating Data')
-                    ->form($this->getFormSchema())
-                    ->modalHeading('Edit Client Satisfaction Ratings')
-                    ->modalWidth('4xl')
-                    ->visible($this->getActionVisibility()),
-                DeleteAction::make()
-                    ->after(fn() => $this->mount())
-                    ->visible($this->getActionVisibility()),
-            ]);
+        if (!$this->validation_mode) {
+            $table->checkIfRecordIsSelectableUsing(
+                fn(Submission $record): bool => !$this->submissionExistsForCurrentType() || $record->id === $this->getCurrentSubmissionId()
+            );
+        }
+
+        return $table;
     }
 
     protected function getTableQuery(): Builder
     {
+        if ($this->validation_mode) {
+            return Submission::query()
+                ->where('application_id', $this->record->id)
+                ->where('type', $this->getActiveSubmissionType());
+        }
+
         return Submission::query()
             ->where('user_id', Auth::id())
             ->where('type', $this->getActiveSubmissionType())
@@ -200,6 +183,57 @@ class QualityOfExtensionWidget extends BaseKRAWidget
                 ])->columns(2),
 
             $this->getKRAFileUploadComponent(),
+        ];
+    }
+
+    protected function getTableHeaderActions(): array
+    {
+        return [
+            CreateAction::make()
+                ->label('Add')
+                ->form($this->getFormSchema())
+                ->disabled(function () {
+                    $application = Application::find($this->selectedApplicationId);
+                    if (!$application) {
+                        return true;
+                    }
+                    return $application->status !== 'Draft';
+                })
+                ->mutateFormDataUsing(function (array $data): array {
+                    $data['user_id'] = Auth::id();
+                    $data['application_id'] = $this->selectedApplicationId;
+                    $data['category'] = $this->getKACategory();
+                    $data['type'] = $this->getActiveSubmissionType();
+                    return $data;
+                })
+                ->modalHeading('Submit Client Satisfaction Ratings')
+                ->modalWidth('4xl')
+                ->hidden(fn(): bool => $this->submissionExistsForCurrentType() || $this->validation_mode)
+                ->after(fn() => $this->mount()),
+        ];
+    }
+
+    protected function getTableActions(): array
+    {
+        if ($this->validation_mode) {
+            return [
+                $this->getViewFilesAction(),
+                $this->getValidateSubmissionAction(),
+            ];
+        }
+
+        return [
+            $this->getViewFilesAction(),
+
+            EditAction::make()
+                ->label('Edit Rating Data')
+                ->form($this->getFormSchema())
+                ->modalHeading('Edit Client Satisfaction Ratings')
+                ->modalWidth('4xl')
+                ->visible($this->getActionVisibility()),
+            DeleteAction::make()
+                ->after(fn() => $this->mount())
+                ->visible($this->getActionVisibility()),
         ];
     }
 }

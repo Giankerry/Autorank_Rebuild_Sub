@@ -18,6 +18,7 @@ return new class extends Migration
             $table->string('category'); // e.g., KRA1, KRA2
             $table->string('type'); // e.g., research-outputs, mentorship-services
             $table->json('data'); // Stores all unique fields for each type
+            $table->text('validator_remarks')->nullable();
             $table->string('filename')->nullable();
             $table->json('google_drive_file_id')->nullable();
             $table->decimal('raw_score', 8, 2)

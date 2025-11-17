@@ -47,6 +47,38 @@ class Application extends Model
         return $this->hasMany(Submission::class);
     }
 
+    /**
+     * Get only the KRA 1 submissions for the application.
+     */
+    public function kra1Submissions(): HasMany
+    {
+        return $this->hasMany(Submission::class)->where('category', 'kra_1');
+    }
+
+    /**
+     * Get only the KRA 2 submissions for the application.
+     */
+    public function kra2Submissions(): HasMany
+    {
+        return $this->hasMany(Submission::class)->where('category', 'kra_2');
+    }
+
+    /**
+     * Get only the KRA 3 submissions for the application.
+     */
+    public function kra3Submissions(): HasMany
+    {
+        return $this->hasMany(Submission::class)->where('category', 'kra_3');
+    }
+
+    /**
+     * Get only the KRA 4 submissions for the application.
+     */
+    public function kra4Submissions(): HasMany
+    {
+        return $this->hasMany(Submission::class)->where('category', 'kra_4');
+    }
+
     protected function applicantCurrentRank(): Attribute
     {
         return Attribute::make(

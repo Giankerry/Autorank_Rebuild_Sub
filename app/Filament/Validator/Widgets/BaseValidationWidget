@@ -1,0 +1,57 @@
+<?php
+
+namespace App\Filament\Validator\Widgets;
+
+use App\Models\Application;
+use App\Models\Submission;
+use Filament\Actions\Concerns\InteractsWithActions;
+use Filament\Actions\Contracts\HasActions;
+use Filament\Widgets\TableWidget as BaseWidget;
+use App\Tables\Actions\ViewSubmissionFilesAction;
+use Filament\Forms\Components\Textarea;
+use Filament\Tables\Actions\EditAction;
+use App\Forms\Components\TrimmedNumericInput;
+
+abstract class BaseValidationWidget extends BaseWidget implements HasActions
+{
+    use InteractsWithActions;
+
+    public ?Application $record = null;
+
+    protected int | string | array $columnSpan = 'full';
+
+    abstract protected function getKACategory(): string;
+    abstract protected function getActiveSubmissionType(): string;
+
+    protected function getValidateSubmissionAction(): EditAction
+    {
+        return EditAction::make('validateSubmission')
+            ->label('Validate')
+            ->icon('heroicon-o-pencil-square')
+            ->modalWidth('4xl')
+            ->modalHeading('Validate Submission')
+            ->form([
+                TrimmedNumericInput::make('score')
+                    ->label('Score')
+                    ->step('0.01')
+                    ->rules(['numeric', 'min:0'])
+                    ->minValue(0)
+                    ->required(),
+                Textarea::make('validator_remarks')
+                    ->label('Validator Remarks')
+                    ->placeholder('Add remarks for this specific submission..')
+                    ->rows(5)
+                    ->columnSpanFull(),
+            ]);
+    }
+
+    protected function getViewFilesAction(): ViewSubmissionFilesAction
+    {
+        return ViewSubmissionFilesAction::make();
+    }
+
+    public function getDisplayFormattingMap(): array
+    {
+        return [];
+    }
+}

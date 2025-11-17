@@ -5,13 +5,13 @@ namespace App\Providers;
 use App\Models\Submission;
 use App\Models\Setting;
 use App\Observers\SubmissionObserver;
-use App\Services\ApplicationScoringService;
-use App\Services\GoogleDriveService;
-use App\Services\ScoringService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -38,5 +38,10 @@ class AppServiceProvider extends ServiceProvider
     {
         Schema::defaultStringLength(191);
         Submission::observe(SubmissionObserver::class);
+        RateLimiter::for('filament', function (Request $request) {
+            return Limit::perMinute(500)->by(
+                $request->user()?->id ?: $request->ip()
+            );
+        });
     }
 }

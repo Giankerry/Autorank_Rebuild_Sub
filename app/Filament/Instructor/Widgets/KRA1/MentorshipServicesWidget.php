@@ -20,7 +20,7 @@ use App\Tables\Columns\ScoreColumn;
 use App\Filament\Instructor\Widgets\BaseKRAWidget;
 use App\Filament\Traits\HandlesKRAFileUploads;
 use App\Tables\Actions\ViewSubmissionFilesAction;
-use Filament\Forms\Get; // <-- IMPORT Get
+use Filament\Forms\Get;
 
 class MentorshipServicesWidget extends BaseKRAWidget
 {
@@ -123,13 +123,19 @@ class MentorshipServicesWidget extends BaseKRAWidget
             ->columns($this->getTableColumns())
             ->headerActions($this->getTableHeaderActions())
             ->actions($this->getTableActions())
-            ->checkIfRecordIsSelectableUsing(
-                fn(Submission $record): bool => !$this->submissionExistsForCurrentType() || $record->id === $this->getCurrentSubmissionId()
-            );
+            ->paginated(!$this->validation_mode)
+            ->emptyStateHeading($this->getTableEmptyStateHeading())
+            ->emptyStateDescription($this->getTableEmptyStateDescription());
     }
 
     protected function getTableQuery(): Builder
     {
+        if ($this->validation_mode) {
+            return Submission::query()
+                ->where('application_id', $this->record->id)
+                ->where('type', $this->getActiveSubmissionType());
+        }
+
         return Submission::query()
             ->where('user_id', Auth::id())
             ->where('type', $this->getActiveSubmissionType())
@@ -192,7 +198,7 @@ class MentorshipServicesWidget extends BaseKRAWidget
                     if (!$application) {
                         return true;
                     }
-                    return $application->status !== 'draft';
+                    return $application->status !== 'Draft';
                 })
                 ->mutateFormDataUsing(function (array $data): array {
                     $data['user_id'] = Auth::id();
@@ -204,6 +210,9 @@ class MentorshipServicesWidget extends BaseKRAWidget
                 ->modalHeading(fn(): string => 'Submit New ' . Str::of($this->activeTable)->replace('_', ' ')->title())
                 ->modalWidth('3xl')
                 ->hidden(function (Get $get): bool {
+                    if ($this->validation_mode) {
+                        return true;
+                    }
                     if ($this->activeTable === 'mentor') {
                         return false;
                     }
@@ -215,6 +224,13 @@ class MentorshipServicesWidget extends BaseKRAWidget
 
     protected function getTableActions(): array
     {
+        if ($this->validation_mode) {
+            return [
+                $this->getViewFilesAction(),
+                $this->getValidateSubmissionAction(),
+            ];
+        }
+
         return [
             ViewSubmissionFilesAction::make(),
             EditAction::make()

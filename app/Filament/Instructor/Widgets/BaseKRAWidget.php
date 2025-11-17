@@ -12,6 +12,10 @@ use Filament\Forms\Components\Select as FormSelect;
 use Filament\Widgets\TableWidget as BaseWidget;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\On;
+use App\Forms\Components\TrimmedNumericInput;
+use App\Tables\Actions\ViewSubmissionFilesAction;
+use Filament\Forms\Components\Textarea;
+use Filament\Tables\Actions\EditAction;
 
 abstract class BaseKRAWidget extends BaseWidget implements HasActions
 {
@@ -19,6 +23,9 @@ abstract class BaseKRAWidget extends BaseWidget implements HasActions
 
     public $applicationOptions = [];
     public $selectedApplicationId = null;
+
+    public ?Application $record = null;
+    public bool $validation_mode = false;
 
     abstract protected function getKACategory(): string;
 
@@ -33,6 +40,10 @@ abstract class BaseKRAWidget extends BaseWidget implements HasActions
 
     public function mount(): void
     {
+        if ($this->validation_mode) {
+            return;
+        }
+
         $user = Auth::user();
 
         $applications = Application::where('user_id', $user->id)
@@ -53,9 +64,6 @@ abstract class BaseKRAWidget extends BaseWidget implements HasActions
         $this->selectedApplicationId = session('selected_app_id');
     }
 
-    /**
-     * Changed visibility from 'protected' to 'public' so the trait can access it.
-     */
     abstract public function getGoogleDriveFolderPath(): array;
 
     public function createApplicationAction(): Action
@@ -78,7 +86,7 @@ abstract class BaseKRAWidget extends BaseWidget implements HasActions
                 $newApplication = Application::create([
                     'user_id' => $user->id,
                     'applicant_current_rank' => $user->facultyRank?->name ?? 'N/A',
-                    'status' => 'draft',
+                    'status' => 'Draft',
                     'evaluation_cycle' => $data['evaluation_cycle'],
                 ]);
 
@@ -131,12 +139,54 @@ abstract class BaseKRAWidget extends BaseWidget implements HasActions
             if (is_null($record->application_id)) {
                 return true;
             }
-            return $record->application?->status === 'draft';
+            return $record->application?->status === 'Draft';
         };
+    }
+
+    protected function getTableEmptyStateHeading(): ?string
+    {
+        return $this->validation_mode
+            ? 'No Submissions Found'
+            : 'No submissions';
+    }
+
+    protected function getTableEmptyStateDescription(): ?string
+    {
+        return $this->validation_mode
+            ? null
+            : 'Create a submission to get started.';
     }
 
     public function getDisplayFormattingMap(): array
     {
         return [];
+    }
+
+    protected function getValidateSubmissionAction(): EditAction
+    {
+        return EditAction::make('validateSubmission')
+            ->label('Validate')
+            ->icon('heroicon-o-pencil-square')
+            ->modalWidth('4xl')
+            ->modalHeading('Validate Submission')
+            ->form([
+                TrimmedNumericInput::make('score')
+                    ->label('Score')
+                    ->step('0.01')
+                    ->rules(['numeric', 'min:0'])
+                    ->minValue(0)
+                    ->required(),
+
+                Textarea::make('validator_remarks')
+                    ->label('Validator Remarks')
+                    ->placeholder('Add remarks for this specific submission...')
+                    ->rows(5)
+                    ->columnSpanFull(),
+            ]);
+    }
+
+    protected function getViewFilesAction(): ViewSubmissionFilesAction
+    {
+        return ViewSubmissionFilesAction::make();
     }
 }

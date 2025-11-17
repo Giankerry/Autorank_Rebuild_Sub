@@ -4,7 +4,9 @@ namespace Database\Seeders;
 
 use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
 
@@ -18,16 +20,14 @@ class UserSeeder extends Seeder
         $validatorRole = Role::firstOrCreate(['name' => 'Validator', 'guard_name' => 'web']);
         Role::firstOrCreate(['name' => 'Instructor', 'guard_name' => 'web']);
 
-        $superAdminEmail = env('DEFAULT_SUPER_ADMIN_EMAIL', 'superadmin@autorank.com');
-        $superAdminPassword = env('DEFAULT_SUPER_ADMIN_PASSWORD', 'password');
+        // Super Admin
+        $superAdminEmail = config('autorank.super_admin_email');
+        $superAdminPassword = $this->getPassword(config('autorank.super_admin_password'), 'DEFAULT_SUPER_ADMIN_PASSWORD');
 
-        $adminEmail = env('DEFAULT_ADMIN_EMAIL', 'admin@autorank.com');
-        $adminPassword = env('DEFAULT_ADMIN_PASSWORD', 'password');
+        if (!$superAdminEmail) {
+            throw new \Exception('DEFAULT_SUPER_ADMIN_EMAIL is not set in your .env file. This is required to run the seeder.');
+        }
 
-        $validatorEmail = env('DEFAULT_VALIDATOR_EMAIL', 'validator@autorank.com');
-        $validatorPassword = env('DEFAULT_VALIDATOR_PASSWORD', 'password');
-
-        // Create Super Admin 
         $superAdmin = User::firstOrCreate(
             ['email' => $superAdminEmail],
             [
@@ -37,7 +37,14 @@ class UserSeeder extends Seeder
         );
         $superAdmin->assignRole($superAdminRole);
 
-        // Create Admin
+        // Admin
+        $adminEmail = config('autorank.admin_email');
+        $adminPassword = $this->getPassword(config('autorank.admin_password'), 'DEFAULT_ADMIN_PASSWORD');
+
+        if (!$adminEmail) {
+            throw new \Exception('DEFAULT_ADMIN_EMAIL is not set in your .env file. This is required to run the seeder.');
+        }
+
         $admin = User::firstOrCreate(
             ['email' => $adminEmail],
             [
@@ -47,7 +54,14 @@ class UserSeeder extends Seeder
         );
         $admin->assignRole($adminRole);
 
-        // Create Validator
+        // Validator
+        $validatorEmail = config('autorank.validator_email');
+        $validatorPassword = $this->getPassword(config('autorank.validator_password'), 'DEFAULT_VALIDATOR_PASSWORD');
+
+        if (!$validatorEmail) {
+            throw new \Exception('DEFAULT_VALIDATOR_EMAIL is not set in your .env file. This is required to run the seeder.');
+        }
+
         $validator = User::firstOrCreate(
             ['email' => $validatorEmail],
             [
@@ -57,7 +71,32 @@ class UserSeeder extends Seeder
         );
         $validator->assignRole($validatorRole);
 
+
+        // Sync Permissions
         $allPermissions = Permission::all();
         $superAdminRole->syncPermissions($allPermissions);
+    }
+
+    /**
+     * Get the password based on the environment.
+     *
+     * @param string|null $configPassword
+     * @param string $envKey The name of the .env variable for the error message
+     * @return string
+     * @throws \Exception
+     */
+    private function getPassword(?string $configPassword, string $envKey): string
+    {
+        if (App::environment('local')) {
+            return 'password';
+        }
+
+        if ($configPassword) {
+            return $configPassword;
+        }
+
+        throw new \Exception(
+            "In the production environment, you must set {$envKey} in your .env file."
+        );
     }
 }

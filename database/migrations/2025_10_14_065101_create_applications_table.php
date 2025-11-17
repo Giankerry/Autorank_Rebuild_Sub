@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->string('applicant_current_rank')->nullable();
-            $table->string('status')->default('draft');
+            $table->string('status')->default('Draft');
             $table->string('evaluation_cycle')->nullable();
             $table->decimal('kra1_score', 8, 2)->nullable();
             $table->decimal('kra2_score', 8, 2)->nullable();

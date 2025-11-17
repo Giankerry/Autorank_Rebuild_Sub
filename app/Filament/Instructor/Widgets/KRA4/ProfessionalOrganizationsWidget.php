@@ -85,43 +85,21 @@ class ProfessionalOrganizationsWidget extends BaseKRAWidget
                 Tables\Columns\TextColumn::make('data.date_activity')->label('Date of Activity')->date('m/d/Y'),
                 ScoreColumn::make('score'),
             ])
-            ->headerActions([
-                Tables\Actions\CreateAction::make()
-                    ->label('Add')
-                    ->form($this->getFormSchema())
-                    ->disabled(function () {
-                        $application = Application::find($this->selectedApplicationId);
-                        if (!$application) {
-                            return true;
-                        }
-                        return $application->status !== 'draft';
-                    })
-                    ->mutateFormDataUsing(function (array $data): array {
-                        $data['user_id'] = Auth::id();
-                        $data['application_id'] = $this->selectedApplicationId;
-                        $data['category'] = $this->getKACategory();
-                        $data['type'] = $this->getActiveSubmissionType();
-                        return $data;
-                    })
-                    ->modalHeading('Submit New Involvement in Professional Organization')
-                    ->modalWidth('3xl')
-                    ->after(fn() => $this->mount()),
-            ])
-            ->actions([
-                ViewSubmissionFilesAction::make(),
-                Tables\Actions\EditAction::make()
-                    ->form($this->getFormSchema())
-                    ->modalHeading('Edit Involvement in Professional Organization')
-                    ->modalWidth('3xl')
-                    ->visible($this->getActionVisibility()),
-                Tables\Actions\DeleteAction::make()
-                    ->after(fn() => $this->mount())
-                    ->visible($this->getActionVisibility()),
-            ]);
+            ->headerActions($this->getTableHeaderActions())
+            ->actions($this->getTableActions())
+            ->paginated(!$this->validation_mode)
+            ->emptyStateHeading($this->getTableEmptyStateHeading())
+            ->emptyStateDescription($this->getTableEmptyStateDescription());
     }
 
     protected function getTableQuery(): Builder
     {
+        if ($this->validation_mode) {
+            return Submission::query()
+                ->where('application_id', $this->record->id)
+                ->where('type', $this->getActiveSubmissionType());
+        }
+
         return Submission::query()
             ->where('user_id', Auth::id())
             ->where('type', $this->getActiveSubmissionType())
@@ -159,6 +137,55 @@ class ProfessionalOrganizationsWidget extends BaseKRAWidget
                 ->columnSpanFull(),
 
             $this->getKRAFileUploadComponent(),
+        ];
+    }
+
+    protected function getTableHeaderActions(): array
+    {
+        return [
+            Tables\Actions\CreateAction::make()
+                ->label('Add')
+                ->form($this->getFormSchema())
+                ->disabled(function () {
+                    $application = Application::find($this->selectedApplicationId);
+                    if (!$application) {
+                        return true;
+                    }
+                    return $application->status !== 'Draft';
+                })
+                ->mutateFormDataUsing(function (array $data): array {
+                    $data['user_id'] = Auth::id();
+                    $data['application_id'] = $this->selectedApplicationId;
+                    $data['category'] = $this->getKACategory();
+                    $data['type'] = $this->getActiveSubmissionType();
+                    return $data;
+                })
+                ->modalHeading('Submit New Involvement in Professional Organization')
+                ->modalWidth('3xl')
+                ->hidden($this->validation_mode)
+                ->after(fn() => $this->mount()),
+        ];
+    }
+
+    protected function getTableActions(): array
+    {
+        if ($this->validation_mode) {
+            return [
+                $this->getViewFilesAction(),
+                $this->getValidateSubmissionAction(),
+            ];
+        }
+
+        return [
+            ViewSubmissionFilesAction::make(),
+            Tables\Actions\EditAction::make()
+                ->form($this->getFormSchema())
+                ->modalHeading('Edit Involvement in Professional Organization')
+                ->modalWidth('3xl')
+                ->visible($this->getActionVisibility()),
+            Tables\Actions\DeleteAction::make()
+                ->after(fn() => $this->mount())
+                ->visible($this->getActionVisibility()),
         ];
     }
 }

@@ -1,3 +1,4 @@
+@if(!$validation_mode)
 <div class="flex flex-col md:flex-row md:justify-between md:items-end gap-4 mb-4">
     <div class="flex-grow">
         <x-filament::input.wrapper
@@ -17,3 +18,4 @@
         {{ $this->createApplicationAction }}
     </div>
 </div>
+@endif

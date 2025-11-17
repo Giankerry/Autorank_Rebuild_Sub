@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
 use Spatie\Permission\Models\Role;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Database\Eloquent\Builder;
 
 class UserResource extends Resource
 {
@@ -25,6 +26,20 @@ class UserResource extends Resource
     protected static ?string $navigationIcon = 'heroicon-o-user';
 
     protected static ?string $navigationGroup = 'System Management';
+
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+        $user = Auth::user();
+
+        if ($user instanceof User && $user->hasRole('Admin')) {
+            return $query->whereDoesntHave('roles', function (Builder $query) {
+                $query->whereIn('name', ['Super Admin', 'super_admin']);
+            });
+        }
+
+        return $query;
+    }
 
     public static function canViewAny(): bool
     {
@@ -80,9 +95,10 @@ class UserResource extends Resource
                 Select::make('role_id')
                     ->label('Role')
                     ->required()
-                    ->options(Role::where('name', '!=', 'super_admin')->pluck('name', 'id'))
+                    ->options(Role::whereNotIn('name', ['Super Admin', 'super_admin'])->pluck('name', 'id'))
                     ->searchable()
                     ->preload()
+                    ->disabled(fn(?User $record): bool => $record?->hasRole(['Super Admin', 'super_admin']) ?? false)
                     ->afterStateHydrated(function (Select $component, ?User $record) {
                         $component->state($record?->roles->first()?->id);
                     }),
@@ -133,12 +149,12 @@ class UserResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
-            ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
             ]);
+        // ->bulkActions([
+        //     Tables\Actions\BulkActionGroup::make([
+        //         Tables\Actions\DeleteBulkAction::make(),
+        //     ]),
+        // ]);
     }
 
     public static function getRelations(): array

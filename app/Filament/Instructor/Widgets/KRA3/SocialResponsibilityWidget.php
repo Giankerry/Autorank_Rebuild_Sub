@@ -81,43 +81,21 @@ class SocialResponsibilityWidget extends BaseKRAWidget
                 Tables\Columns\TextColumn::make('data.activity_date')->label('Activity Date')->date('m/d/Y'),
                 ScoreColumn::make('score'),
             ])
-            ->headerActions([
-                CreateAction::make()
-                    ->label('Add')
-                    ->form($this->getFormSchema())
-                    ->disabled(function () {
-                        $application = Application::find($this->selectedApplicationId);
-                        if (!$application) {
-                            return true;
-                        }
-                        return $application->status !== 'draft';
-                    })
-                    ->mutateFormDataUsing(function (array $data): array {
-                        $data['user_id'] = Auth::id();
-                        $data['application_id'] = $this->selectedApplicationId;
-                        $data['category'] = $this->getKACategory();
-                        $data['type'] = $this->getActiveSubmissionType();
-                        return $data;
-                    })
-                    ->modalHeading('Submit New Social Responsibility Activity')
-                    ->modalWidth('3xl')
-                    ->after(fn() => $this->mount()),
-            ])
-            ->actions([
-                ViewSubmissionFilesAction::make(),
-                EditAction::make()
-                    ->form($this->getFormSchema())
-                    ->modalHeading('Edit Social Responsibility Activity')
-                    ->modalWidth('3xl')
-                    ->visible($this->getActionVisibility()),
-                DeleteAction::make()
-                    ->after(fn() => $this->mount())
-                    ->visible($this->getActionVisibility()),
-            ]);
+            ->headerActions($this->getTableHeaderActions())
+            ->actions($this->getTableActions())
+            ->paginated(!$this->validation_mode)
+            ->emptyStateHeading($this->getTableEmptyStateHeading())
+            ->emptyStateDescription($this->getTableEmptyStateDescription());
     }
 
     protected function getTableQuery(): Builder
     {
+        if ($this->validation_mode) {
+            return Submission::query()
+                ->where('application_id', $this->record->id)
+                ->where('type', $this->getActiveSubmissionType());
+        }
+
         return Submission::query()
             ->where('user_id', Auth::id())
             ->where('type', $this->getActiveSubmissionType())
@@ -157,6 +135,55 @@ class SocialResponsibilityWidget extends BaseKRAWidget
                 ->maxDate(now()),
 
             $this->getKRAFileUploadComponent(),
+        ];
+    }
+
+    protected function getTableHeaderActions(): array
+    {
+        return [
+            CreateAction::make()
+                ->label('Add')
+                ->form($this->getFormSchema())
+                ->disabled(function () {
+                    $application = Application::find($this->selectedApplicationId);
+                    if (!$application) {
+                        return true;
+                    }
+                    return $application->status !== 'Draft';
+                })
+                ->mutateFormDataUsing(function (array $data): array {
+                    $data['user_id'] = Auth::id();
+                    $data['application_id'] = $this->selectedApplicationId;
+                    $data['category'] = $this->getKACategory();
+                    $data['type'] = $this->getActiveSubmissionType();
+                    return $data;
+                })
+                ->modalHeading('Submit New Social Responsibility Activity')
+                ->modalWidth('3xl')
+                ->hidden($this->validation_mode)
+                ->after(fn() => $this->mount()),
+        ];
+    }
+
+    protected function getTableActions(): array
+    {
+        if ($this->validation_mode) {
+            return [
+                $this->getViewFilesAction(),
+                $this->getValidateSubmissionAction(),
+            ];
+        }
+
+        return [
+            ViewSubmissionFilesAction::make(),
+            EditAction::make()
+                ->form($this->getFormSchema())
+                ->modalHeading('Edit Social Responsibility Activity')
+                ->modalWidth('3xl')
+                ->visible($this->getActionVisibility()),
+            DeleteAction::make()
+                ->after(fn() => $this->mount())
+                ->visible($this->getActionVisibility()),
         ];
     }
 }

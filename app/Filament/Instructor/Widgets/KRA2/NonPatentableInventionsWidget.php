@@ -115,13 +115,19 @@ class NonPatentableInventionsWidget extends BaseKRAWidget
             ->columns($this->getTableColumns())
             ->headerActions($this->getTableHeaderActions())
             ->actions($this->getTableActions())
-            ->checkIfRecordIsSelectableUsing(
-                fn(Submission $record): bool => !$this->submissionExistsForCurrentType() || $record->id === $this->getCurrentSubmissionId()
-            );
+            ->paginated(!$this->validation_mode)
+            ->emptyStateHeading($this->getTableEmptyStateHeading())
+            ->emptyStateDescription($this->getTableEmptyStateDescription());
     }
 
     protected function getTableQuery(): Builder
     {
+        if ($this->validation_mode) {
+            return Submission::query()
+                ->where('application_id', $this->record->id)
+                ->where('type', $this->getActiveSubmissionType());
+        }
+
         return Submission::query()
             ->where('user_id', Auth::id())
             ->where('type', $this->getActiveSubmissionType())
@@ -178,7 +184,7 @@ class NonPatentableInventionsWidget extends BaseKRAWidget
                     if (!$application) {
                         return true;
                     }
-                    return $application->status !== 'draft';
+                    return $application->status !== 'Draft';
                 })
                 ->mutateFormDataUsing(function (array $data): array {
                     $data['user_id'] = Auth::id();
@@ -189,12 +195,20 @@ class NonPatentableInventionsWidget extends BaseKRAWidget
                 })
                 ->modalHeading(fn(): string => 'Submit New ' . Str::of($this->activeTable)->replace('_', ' ')->title())
                 ->modalWidth('3xl')
+                ->hidden($this->validation_mode)
                 ->after(fn() => $this->mount()),
         ];
     }
 
     protected function getTableActions(): array
     {
+        if ($this->validation_mode) {
+            return [
+                $this->getViewFilesAction(),
+                $this->getValidateSubmissionAction(),
+            ];
+        }
+
         return [
             ViewSubmissionFilesAction::make(),
             EditAction::make()
@@ -228,7 +242,7 @@ class NonPatentableInventionsWidget extends BaseKRAWidget
                     ->native(false)
                     ->displayFormat('m/d/Y')
                     ->maxDate(now()),
-                TextInput::make('data.end_user')->label('Name of End User/s')->maxLength(255)->required(),
+                TextInput::make('data.end_user')->label('Name of End User(s)')->maxLength(255)->required(),
             ];
             if ($this->activeTable === 'software_new_co') {
                 $schema[] = TrimmedIntegerInput::make('data.contribution_percentage')

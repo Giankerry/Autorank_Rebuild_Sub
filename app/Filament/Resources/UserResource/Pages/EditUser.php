@@ -15,29 +15,27 @@ class EditUser extends EditRecord
 {
     protected static string $resource = UserResource::class;
 
-    protected function getHeaderActions(): array
+    // protected function getHeaderActions(): array
+    // {
+    //     return [
+    //         Actions\DeleteAction::make(),
+    //     ];
+    // }
+
+    protected function getRedirectUrl(): string
     {
-        return [
-            Actions\DeleteAction::make(),
-        ];
+        return static::getResource()::getUrl('index');
     }
 
-    /**
-     * Automatically update rank assignment details on change
-     */
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        // Get the original faculty rank ID from the record being edited.
         $originalRankId = $this->getRecord()->faculty_rank_id;
 
-        // Check if the faculty rank in the form data is different from the original.
         if ($originalRankId != $data['faculty_rank_id']) {
-            // If a rank was added or changed...
             if (filled($data['faculty_rank_id'])) {
                 $data['rank_assigned_by'] = Auth::user()->email;
                 $data['rank_assigned_at'] = now();
             } else {
-                // If the rank was cleared (set to 'Unset')...
                 $data['rank_assigned_by'] = null;
                 $data['rank_assigned_at'] = null;
             }
@@ -46,9 +44,6 @@ class EditUser extends EditRecord
         return $data;
     }
 
-    /**
-     * Send notification to user after rank is successfully saved.
-     */
     protected function afterSave(): void
     {
         $user = $this->getRecord();

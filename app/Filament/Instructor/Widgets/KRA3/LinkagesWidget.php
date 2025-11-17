@@ -103,7 +103,10 @@ class LinkagesWidget extends BaseKRAWidget
                 Tables\Actions\DeleteAction::make()
                     ->after(fn() => $this->mount())
                     ->visible($this->getActionVisibility()),
-            ]);
+            ])
+            ->paginated(!$this->validation_mode)
+            ->emptyStateHeading($this->getTableEmptyStateHeading())
+            ->emptyStateDescription($this->getTableEmptyStateDescription());
     }
 
     protected function getTableQuery(): Builder
@@ -115,48 +118,14 @@ class LinkagesWidget extends BaseKRAWidget
             ->where('application_id', $this->selectedApplicationId);
     }
 
-    protected function getTableHeaderActions(): array
-    {
-        return [
-            Tables\Actions\CreateAction::make()
-                ->label('Add')
-                ->form($this->getFormSchema())
-                ->mutateFormDataUsing(function (array $data): array {
-                    $data['user_id'] = Auth::id();
-                    $data['application_id'] = $this->selectedApplicationId;
-                    $data['category'] = $this->getKACategory();
-                    $data['type'] = $this->getActiveSubmissionType();
-                    return $data;
-                })
-                ->modalHeading('Submit New Linkage/Partnership')
-                ->modalWidth('3xl')
-                ->after(fn() => $this->mount()),
-        ];
-    }
-
-    protected function getTableActions(): array
-    {
-        return [
-            ViewSubmissionFilesAction::make(),
-            Tables\Actions\EditAction::make()
-                ->form($this->getFormSchema())
-                ->modalHeading('Edit Linkage/Partnership')
-                ->modalWidth('3xl')
-                ->visible($this->getActionVisibility()),
-            Tables\Actions\DeleteAction::make()
-                ->after(fn() => $this->mount())
-                ->visible($this->getActionVisibility()),
-        ];
-    }
-
     // Handles Certificate documents 
-    protected function mapCertificateDataToForm(Set $set, Get $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
+    protected function mapCertificateDataToForm($set, $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
     {
         Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Certificate. This form requires a Memorandum of Agreement (MOA).')->warning()->send();
     }
 
     // handles MOA documents 
-    protected function mapMoaDataToForm(Set $set, Get $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
+    protected function mapMoaDataToForm($set, $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
     {
         $set('data.partner_name', $partnerName ?? $get('data.partner_name'));
         $set('data.moa_start', $startDate ?? $get('data.moa_start'));
@@ -167,7 +136,7 @@ class LinkagesWidget extends BaseKRAWidget
         }
     }
 
-    protected function mapResearchDataToForm(Set $set, Get $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
+    protected function mapResearchDataToForm($set, $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
     {
         Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Research Paper/Thesis. This form requires a Memorandum of Agreement (MOA).')->warning()->send();
     }
