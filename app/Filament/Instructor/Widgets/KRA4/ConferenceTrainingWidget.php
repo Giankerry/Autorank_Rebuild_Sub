@@ -4,10 +4,14 @@ namespace App\Filament\Instructor\Widgets\KRA4;
 
 use App\Models\Application;
 use App\Models\Submission;
+use App\Services\DocumentAiService;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
+use Filament\Notifications\Notification;
 use Filament\Tables;
 use Filament\Tables\Actions\CreateAction;
 use Filament\Tables\Actions\DeleteAction;
@@ -20,17 +24,13 @@ use Illuminate\Support\Str;
 use App\Tables\Columns\ScoreColumn;
 use App\Filament\Traits\HandlesKRAFileUploads;
 use App\Tables\Actions\ViewSubmissionFilesAction;
-use App\Services\DocumentAiService;
-use Filament\Forms\Get;
-use Filament\Forms\Set;
-use Filament\Notifications\Notification;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Filament\Forms\Components\Actions;
 use Filament\Forms\Components\Actions\Action;
 use Filament\Forms\Components\Grid;
 use Illuminate\Support\Facades\Log;
 use App\Filament\Traits\AutofillDocument;
-use Filament\Forms\Components\FileUpload; 
+use Filament\Forms\Components\FileUpload;
 
 class ConferenceTrainingWidget extends BaseKRAWidget
 {
@@ -89,7 +89,7 @@ class ConferenceTrainingWidget extends BaseKRAWidget
                     ->badge(),
                 Tables\Columns\TextColumn::make('data.organizer')->label('Organizer'),
                 Tables\Columns\TextColumn::make('data.date_activity')->label('Date of Activity')->date('m/d/Y'),
-                Tables\Columns\TextColumn::make('data.venue')->label('Venue of Activity'), 
+                Tables\Columns\TextColumn::make('data.venue')->label('Venue of Activity'),
                 ScoreColumn::make('score'),
             ])
             ->headerActions($this->getTableHeaderActions())
@@ -162,7 +162,7 @@ class ConferenceTrainingWidget extends BaseKRAWidget
         ];
     }
 
-    protected function mapCertificateDataToForm(Set $set, Get $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
+    protected function mapCertificateDataToForm($set, $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
     {
         $set('data.name', $credentialType ?? $get('data.name'));
         $set('data.date_activity', $dateCompleted ?? $get('data.date_activity'));
@@ -170,12 +170,12 @@ class ConferenceTrainingWidget extends BaseKRAWidget
         $set('data.venue', $venue ?? $get('data.venue'));
     }
 
-    protected function mapMoaDataToForm(Set $set, Get $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
+    protected function mapMoaDataToForm($set, $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
     {
         Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Memorandum of Agreement (MOA). This form requires a Certificate or Training Document.')->warning()->send();
     }
 
-    protected function mapResearchDataToForm(Set $set, Get $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
+    protected function mapResearchDataToForm($set, $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
     {
         Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Research Paper/Thesis. This form requires a Certificate or Training Document.')->warning()->send();
     }
@@ -203,7 +203,7 @@ class ConferenceTrainingWidget extends BaseKRAWidget
                 ->displayFormat('m/d/Y')
                 ->required()
                 ->maxDate(now())
-                ->live(), 
+                ->live(),
 
             TextInput::make('data.venue')
                 ->label('Venue of Activity')

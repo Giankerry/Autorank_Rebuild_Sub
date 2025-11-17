@@ -12,9 +12,6 @@ use Filament\Forms\Get;
 use Filament\Forms\Set;
 use Filament\Notifications\Notification;
 use Filament\Tables;
-use Filament\Tables\Actions\CreateAction;
-use Filament\Tables\Actions\DeleteAction;
-use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Table;
 use App\Filament\Instructor\Widgets\BaseKRAWidget;
 use Illuminate\Database\Eloquent\Builder;
@@ -23,8 +20,7 @@ use Illuminate\Support\Str;
 use App\Tables\Columns\ScoreColumn;
 use App\Filament\Traits\HandlesKRAFileUploads;
 use App\Tables\Actions\ViewSubmissionFilesAction;
-
-use App\Filament\Traits\AutofillDocument; //import for Autofill
+use App\Filament\Traits\AutofillDocument;
 use Filament\Forms\Components\Actions;
 use Filament\Forms\Components\Actions\Action;
 use Filament\Forms\Components\Grid;
@@ -34,7 +30,6 @@ use Filament\Forms\Components\FileUpload;
 
 class EducationalQualificationsWidget extends BaseKRAWidget
 {
-    // NEW: Use both traits
     use HandlesKRAFileUploads;
     use AutofillDocument;
 
@@ -197,12 +192,13 @@ class EducationalQualificationsWidget extends BaseKRAWidget
         ];
     }
 
-    //Autofill Implementation for Educational Qualifications
-    protected function mapCertificateDataToForm(Set $set, Get $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
+    // FIX: Removed type hint 'Set' and 'Get'
+    protected function mapCertificateDataToForm($set, $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
     {
         $set('data.name', $credentialType ?? $get('data.name'));
         $set('data.institution', $issuingOrg ?? $get('data.institution'));
         $set('data.date_completed', $dateCompleted ?? $get('data.date_completed'));
+
         $extractedType = Str::lower($credentialType ?? '');
 
         if (Str::contains($extractedType, ['master', 'm.s.'])) {
@@ -210,16 +206,16 @@ class EducationalQualificationsWidget extends BaseKRAWidget
         } elseif (Str::contains($extractedType, ['doctorate', 'ph.d.'])) {
             $set('data.degree_type', 'doctorate');
         } elseif (Str::contains($extractedType, ['diploma', 'certificate'])) {
-            $set('data.degree_type', 'diploma'); // Map to the general diploma category
+            $set('data.degree_type', 'diploma');
         }
     }
 
-    protected function mapMoaDataToForm(Set $set, Get $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
+    protected function mapMoaDataToForm($set, $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
     {
         Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a MOA. This form requires a Diploma or Certificate.')->warning()->send();
     }
 
-    protected function mapResearchDataToForm(Set $set, Get $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
+    protected function mapResearchDataToForm($set, $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
     {
         Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Research Paper/Thesis. This form requires a Diploma or Certificate.')->warning()->send();
     }
@@ -260,7 +256,7 @@ class EducationalQualificationsWidget extends BaseKRAWidget
                     ->default(false),
             ];
         } else {
-            // Diploma/Certificate form section
+            // This is the Diploma/Certificate form section
             $schema = [
                 Select::make('data.degree_type')
                     ->label('Type')
@@ -293,7 +289,6 @@ class EducationalQualificationsWidget extends BaseKRAWidget
             ->columnSpanFull()
             ->schema([
                 $this->getKRAFileUploadComponent()->columnSpan(2),
-
                 $this->getAutofillAction(),
             ]);
 

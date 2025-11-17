@@ -37,7 +37,7 @@ class DocumentAiService
         }
 
         // resolving credentials path
-        $envPath = env('GOOGLE_APPLICATION_CREDENTIALS', 'google-service-account.json');
+        $envPath = env('GOOGLE_APPLICATION_CREDENTIALS_JSON', 'google-service-account.json');
         $isAbsolute = Str::startsWith($envPath, ['/', '\\']) || (strlen($envPath) > 1 && $envPath[1] === ':');
 
         if ($isAbsolute) {

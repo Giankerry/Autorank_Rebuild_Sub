@@ -93,7 +93,7 @@ class AwardsRecognitionWidget extends BaseKRAWidget
                 ScoreColumn::make('score'),
             ])
             ->headerActions([
-                Tables\Actions\CreateAction::make()
+                CreateAction::make()
                     ->label('Add')
                     ->form($this->getFormSchema())
                     ->disabled(function () {
@@ -121,31 +121,22 @@ class AwardsRecognitionWidget extends BaseKRAWidget
                     ->modalHeading('Edit Award/Recognition')
                     ->modalWidth('3xl')
                     ->visible($this->getActionVisibility()),
-                Tables\Actions\DeleteAction::make()
+                DeleteAction::make()
                     ->after(fn() => $this->mount())
                     ->visible($this->getActionVisibility()),
-            ])
-            ->paginated(!$this->validation_mode)
-            ->emptyStateHeading($this->getTableEmptyStateHeading())
-            ->emptyStateDescription($this->getTableEmptyStateDescription());
+            ]);
     }
 
     protected function getTableQuery(): Builder
     {
-        if ($this->validation_mode) {
-            return Submission::query()
-                ->where('application_id', $this->record->id)
-                ->where('type', $this->getActiveSubmissionType());
-        }
-
         return Submission::query()
             ->where('user_id', Auth::id())
+            ->where('category', $this->getKACategory())
             ->where('type', $this->getActiveSubmissionType())
             ->where('application_id', $this->selectedApplicationId);
     }
 
-    //map for autofill certificate data
-    protected function mapCertificateDataToForm(Set $set, Get $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
+    protected function mapCertificateDataToForm($set, $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
     {
         $set('data.name', $credentialType ?? $get('data.name'));
         $set('data.date_given', $dateCompleted ?? $get('data.date_given'));
@@ -153,12 +144,12 @@ class AwardsRecognitionWidget extends BaseKRAWidget
         $set('data.venue', $venue ?? $get('data.venue'));
     }
 
-    protected function mapMoaDataToForm(Set $set, Get $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
+    protected function mapMoaDataToForm($set, $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
     {
         Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Memorandum of Agreement (MOA). This form requires a Certificate or Award Document.')->warning()->send();
     }
 
-    protected function mapResearchDataToForm(Set $set, Get $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
+    protected function mapResearchDataToForm($set, $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
     {
         Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Research Paper/Thesis. This form requires a Certificate or Award Document.')->warning()->send();
     }
@@ -200,13 +191,13 @@ class AwardsRecognitionWidget extends BaseKRAWidget
                 ->maxLength(255)
                 ->live(),
 
+            // Correctly merged Grid
             Grid::make(3)
                 ->columnSpanFull()
                 ->schema([
                     $this->getKRAFileUploadComponent()->columnSpan(2),
                     $this->getAutofillAction(),
                 ]),
-
         ];
     }
 
