@@ -11,6 +11,7 @@ use Filament\Actions\Contracts\HasActions;
 use Filament\Forms\Components\Select as FormSelect;
 use Filament\Widgets\TableWidget as BaseWidget;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\On;
 
 abstract class BaseKRAWidget extends BaseWidget implements HasActions
 {
@@ -19,16 +20,16 @@ abstract class BaseKRAWidget extends BaseWidget implements HasActions
     public $applicationOptions = [];
     public $selectedApplicationId = null;
 
-    /**
-     * Define the KRA category for this widget.
-     * e.g., 'KRA I', 'KRA II'
-     */
     abstract protected function getKACategory(): string;
 
-    /**
-     * Get the submission type string based on the active table.
-     */
     abstract protected function getActiveSubmissionType(): string;
+
+    #[On('applicationSelected')]
+    public function syncApplicationId($applicationId): void
+    {
+        $this->selectedApplicationId = $applicationId;
+        $this->resetTable();
+    }
 
     public function mount(): void
     {
@@ -49,19 +50,13 @@ abstract class BaseKRAWidget extends BaseWidget implements HasActions
             $this->applicationOptions[$app->id] = "{$app->evaluation_cycle} ({$app->status}) - {$app->submissions_count} {$item_label}";
         }
 
-        if (is_null($this->selectedApplicationId)) {
-            $defaultApplication = $applications->where('status', 'draft')->first();
-            $this->selectedApplicationId = $defaultApplication?->id;
-        }
+        $this->selectedApplicationId = session('selected_app_id');
     }
 
     /**
-     * Requires all child widgets to define their own nested
-     * folder structure for Google Drive.
-     *
-     * @return array
+     * Changed visibility from 'protected' to 'public' so the trait can access it.
      */
-    abstract protected function getGoogleDriveFolderPath(): array;
+    abstract public function getGoogleDriveFolderPath(): array;
 
     public function createApplicationAction(): Action
     {
@@ -88,29 +83,17 @@ abstract class BaseKRAWidget extends BaseWidget implements HasActions
                 ]);
 
                 $this->mount();
-                $this->selectedApplicationId = $newApplication->id;
-                $this->resetTable();
+
+                session(['selected_app_id' => $newApplication->id]);
+                $this->dispatch('applicationSelected', applicationId: $newApplication->id);
             });
     }
 
-    public function updatedSelectedApplicationId(): void
-    {
-        $this->resetTable();
-    }
-
-    /**
-     * Controls whether this widget allows multiple submissions for a single type.
-     * By default, it's true (multiple submissions allowed).
-     * Override this in child widgets to *enforce* a single submission.
-     */
     protected function isMultipleSubmissionAllowed(): bool
     {
         return true;
     }
 
-    /**
-     * Helper to check if a submission of the active type already exists.
-     */
     protected function submissionExistsForCurrentType(): bool
     {
         if ($this->isMultipleSubmissionAllowed()) {
@@ -129,9 +112,6 @@ abstract class BaseKRAWidget extends BaseWidget implements HasActions
             ->exists();
     }
 
-    /**
-     * Helper to get the ID of the current submission if it exists.
-     */
     protected function getCurrentSubmissionId(): ?int
     {
         $activeApplicationId = $this->selectedApplicationId;
@@ -145,9 +125,6 @@ abstract class BaseKRAWidget extends BaseWidget implements HasActions
             ->value('id');
     }
 
-    /**
-     * Helper to add the visibility logic to table actions.
-     */
     protected function getActionVisibility(): \Closure
     {
         return function (Submission $record): bool {
@@ -158,20 +135,6 @@ abstract class BaseKRAWidget extends BaseWidget implements HasActions
         };
     }
 
-    /**
-     * Provides a map of formatting rules for the data.
-     * Child widgets will override this.
-     *
-     * The key MUST be the *final display key* (e.g., "Material Type").
-     * The value is either an array (for options) or a string (for date formats).
-     *
-     * @return array e.g., [
-     * 'Material Type' => [
-     * 'raw_key' => 'Display Value',
-     * ],
-     * 'Date Published' => 'm/d/Y',
-     * ]
-     */
     public function getDisplayFormattingMap(): array
     {
         return [];

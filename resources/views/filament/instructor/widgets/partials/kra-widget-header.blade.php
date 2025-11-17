@@ -1,6 +1,8 @@
 <div class="flex flex-col md:flex-row md:justify-between md:items-end gap-4 mb-4">
     <div class="flex-grow">
-        <x-filament::input.wrapper>
+        <x-filament::input.wrapper
+            wire:target="selectedApplicationId"
+        >
             <x-slot name="prefix">
                 {{ __('Filter by Application') }}
             </x-slot>

@@ -5,26 +5,22 @@ namespace App\Filament\Traits;
 use App\Services\DocumentAiService;
 use Filament\Forms\Components\Actions;
 use Filament\Forms\Components\Actions\Action;
-use Filament\Forms\Components\Group; // used to group button and notice
-use Filament\Forms\Components\Placeholder; //used for notice
-use Filament\Forms\Get; // to get form values
-use Filament\Forms\Set; // to set form values
+use Filament\Forms\Components\Group;
+use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Log;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
-use Illuminate\Support\Str; // supports string formatting
+use Illuminate\Support\Str;
 
 trait AutofillDocument
 {
-    // Certificate data mapping
-    abstract protected function mapCertificateDataToForm(Set $set, Get $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void;
+    abstract protected function mapCertificateDataToForm($set, $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void;
 
-    // abstract for moa mapping
-    abstract protected function mapMoaDataToForm(Set $set, Get $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void;
+    abstract protected function mapMoaDataToForm($set, $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void;
 
-
-    // abstract for research/thesis mapping
-    abstract protected function mapResearchDataToForm(Set $set, Get $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void;
+    abstract protected function mapResearchDataToForm($set, $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void;
 
 
     // The general autofill action for all document types
@@ -35,19 +31,17 @@ trait AutofillDocument
         $noticeColor = fn(Get $get) => $isFileUploaded($get) ? 'text-yellow-600' : 'text-gray-500';
 
         return Group::make([
-            //initialize the actions component
-            Actions::make([ // button content and logic
+
+            // 1. Button (Appears on top)
+            Actions::make([
                 Action::make('autofill_document')
-                    ->label('Check and Autofill')
+                    ->label('Check and Autofill using AI✨')
                     ->icon('heroicon-s-sparkles')
 
-                    // Dynamic Color
                     ->color(fn(Get $get) => $isFileUploaded($get) ? 'warning' : 'secondary')
 
-                    // Disabes the button when file upload is empty
                     ->disabled(fn(Get $get) => !$isFileUploaded($get))
 
-                    // Action Logic
                     ->action(function (Set $set, Get $get) {
                         $files = $get('google_drive_file_id');
 
@@ -70,7 +64,6 @@ trait AutofillDocument
                         }
 
                         try {
-                            //check document type using Doc ai
                             $docAiService = app(DocumentAiService::class);
                             $extractedData = $docAiService->processDocument($fileToProcess);
 
@@ -79,13 +72,14 @@ trait AutofillDocument
                             $isResearch = $extractedData['IsResearch'] ?? false;
                             $docType = $extractedData['DocumentType'] ?? 'Unknown';
 
-                            //checks document type and map data accordingly
+
                             if ($isCertificate) {
                                 $credentialType = Str::title(strtolower($extractedData['CredentialType'] ?? null));
                                 $dateCompleted = $extractedData['DateCompleted'] ?? $extractedData['YearIssued'] ?? null;
                                 $issuingOrg = Str::title(strtolower($extractedData['IssuingOrganization'] ?? null));
                                 $venue = Str::title(strtolower($extractedData['AwardVenue'] ?? null));
 
+                                // Note: The concrete widget's method MUST also drop the type hints here: $this->mapCertificateDataToForm($set, $get, ...)
                                 $this->mapCertificateDataToForm($set, $get, $credentialType, $dateCompleted, $issuingOrg, $venue);
                                 Notification::make()->title('AI Extraction Successful')->body('Document details were extracted and autofilled.')->success()->send();
                             } elseif ($isMoa) {
@@ -113,7 +107,6 @@ trait AutofillDocument
                                     ->send();
                             }
                         } catch (\Exception $e) {
-                            //returns error log and notification
                             Log::error("Document AI Button Error: " . $e->getMessage());
                             Notification::make()
                                 ->title('Document AI Error')
@@ -122,21 +115,19 @@ trait AutofillDocument
                                 ->send();
                         }
                     })
-                    // increase width
                     ->extraAttributes([
-                        'class' => 'w-full',
+                        'class' => 'w-full', // Ensure button takes full width of its container
                     ]),
             ])->columnSpanFull(),
 
-            //placeholder used for notice
+            // 2. Placeholder (Notice, appears below the button)
             Placeholder::make('')
                 ->content($noticeText)
                 ->extraAttributes(fn(Get $get) => [
-                    'class' => 'text-gray-500 text-xs font-semibold px-1 pt-1 text-center ' . $noticeColor($get),
+                    'class' => 'text-xs font-semibold px-1 pt-1 text-center ' . $noticeColor($get),
                 ]),
         ])
             ->columnSpan(1)
-            // align contents to the bottom of the grid
             ->extraAttributes(['class' => 'flex flex-col justify-end h-full']);
     }
 }

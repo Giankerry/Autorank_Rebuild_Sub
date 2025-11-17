@@ -2,6 +2,7 @@
 
 namespace App\Filament\Instructor\Widgets\KRA4;
 
+use App\Models\Application;
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -50,7 +51,7 @@ class EducationalQualificationsWidget extends BaseKRAWidget
         $this->resetTable();
     }
 
-    protected function getGoogleDriveFolderPath(): array
+    public function getGoogleDriveFolderPath(): array
     {
         $kra = $this->getKACategory();
         $baseFolder = 'B: Educational Qualifications';
@@ -126,7 +127,6 @@ class EducationalQualificationsWidget extends BaseKRAWidget
     {
         return Submission::query()
             ->where('user_id', Auth::id())
-            ->where('category', $this->getKACategory())
             ->where('type', $this->getActiveSubmissionType())
             ->where('application_id', $this->selectedApplicationId);
     }
@@ -137,6 +137,13 @@ class EducationalQualificationsWidget extends BaseKRAWidget
             Tables\Actions\CreateAction::make()
                 ->label('Add')
                 ->form($this->getFormSchema())
+                ->disabled(function () {
+                    $application = Application::find($this->selectedApplicationId);
+                    if (!$application) {
+                        return true;
+                    }
+                    return $application->status !== 'draft';
+                })
                 ->mutateFormDataUsing(function (array $data): array {
                     $data['user_id'] = Auth::id();
                     $data['application_id'] = $this->selectedApplicationId;

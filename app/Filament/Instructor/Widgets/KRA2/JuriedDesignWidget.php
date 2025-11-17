@@ -2,6 +2,7 @@
 
 namespace App\Filament\Instructor\Widgets\KRA2;
 
+use App\Models\Application;
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -27,7 +28,7 @@ class JuriedDesignWidget extends BaseKRAWidget
 
     protected static string $view = 'filament.instructor.widgets.k-r-a2.juried-design-widget';
 
-    protected function getGoogleDriveFolderPath(): array
+    public function getGoogleDriveFolderPath(): array
     {
         return [$this->getKACategory(), 'C: Creative Work', 'Juried Design'];
     }
@@ -80,6 +81,13 @@ class JuriedDesignWidget extends BaseKRAWidget
                 Tables\Actions\CreateAction::make()
                     ->label('Add')
                     ->form($this->getFormSchema())
+                    ->disabled(function () {
+                        $application = Application::find($this->selectedApplicationId);
+                        if (!$application) {
+                            return true;
+                        }
+                        return $application->status !== 'draft';
+                    })
                     ->mutateFormDataUsing(function (array $data): array {
                         $data['user_id'] = Auth::id();
                         $data['application_id'] = $this->selectedApplicationId;

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Instructor\Widgets\KRA1;
 
+use App\Models\Application;
 use App\Models\Submission;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
@@ -38,7 +39,7 @@ class TeachingEffectivenessWidget extends BaseKRAWidget
         $this->resetTable();
     }
 
-    protected function getGoogleDriveFolderPath(): array
+    public function getGoogleDriveFolderPath(): array
     {
         $kra = $this->getKACategory();
 
@@ -124,6 +125,7 @@ class TeachingEffectivenessWidget extends BaseKRAWidget
 
             Tables\Columns\TextColumn::make('raw_score')
                 ->label('Overall Average Rating')
+                ->badge()
                 ->numeric(2, '.', ','),
 
             ScoreColumn::make('score'),
@@ -136,6 +138,13 @@ class TeachingEffectivenessWidget extends BaseKRAWidget
             CreateAction::make()
                 ->label('Add')
                 ->form($this->getFormSchema())
+                ->disabled(function () {
+                    $application = Application::find($this->selectedApplicationId);
+                    if (!$application) {
+                        return true;
+                    }
+                    return $application->status !== 'draft';
+                })
                 ->mutateFormDataUsing(function (array $data): array {
                     $data['user_id'] = Auth::id();
                     $data['application_id'] = $this->selectedApplicationId;

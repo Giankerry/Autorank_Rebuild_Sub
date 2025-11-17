@@ -17,22 +17,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\HtmlString;
 use Filament\Forms\Components\Section;
 use Illuminate\Support\Str;
-
-use App\Filament\Instructor\Pages\KRA1\InstructionalMaterialsPage;
-use App\Filament\Instructor\Pages\KRA1\MentorshipServicesPage;
-use App\Filament\Instructor\Pages\KRA1\TeachingEffectivenessPage;
-use App\Filament\Instructor\Pages\KRA2\CreativeWorksPage;
-use App\Filament\Instructor\Pages\KRA2\InventionsPage;
-use App\Filament\Instructor\Pages\KRA2\ResearchOutputsPage;
-use App\Filament\Instructor\Pages\KRA3\BonusCriterionPage;
-use App\Filament\Instructor\Pages\KRA3\QualityOfExtensionPage;
-use App\Filament\Instructor\Pages\KRA3\ServiceToCommunityPage;
-use App\Filament\Instructor\Pages\KRA3\ServiceToInstitutionPage;
-use App\Filament\Instructor\Pages\KRA4\AwardsRecognitionPage;
-use App\Filament\Instructor\Pages\KRA4\BonusIndicatorsPage;
-use App\Filament\Instructor\Pages\KRA4\ContinuingDevelopmentPage;
-use App\Filament\Instructor\Pages\KRA4\ProfessionalOrganizationsPage;
-
+use App\Filament\Instructor\Pages;
 
 class CreateApplication extends CreateRecord
 {
@@ -98,29 +83,9 @@ class CreateApplication extends CreateRecord
 
     protected function getSteps(): array
     {
-        // Get all unassigned submissions
         $allSubmissions = Submission::where('user_id', Auth::id())
             ->whereNull('application_id')
             ->get();
-
-        // Get the URLs for all KRA pages
-        $kra1TeUrl = TeachingEffectivenessPage::getUrl();
-        $kra1ImUrl = InstructionalMaterialsPage::getUrl();
-        $kra1MentorUrl = MentorshipServicesPage::getUrl();
-
-        $kra2ResearchUrl = ResearchOutputsPage::getUrl();
-        $kra2InventionUrl = InventionsPage::getUrl();
-        $kra2CreativeUrl = CreativeWorksPage::getUrl();
-
-        $kra3ServiceInstUrl = ServiceToInstitutionPage::getUrl();
-        $kra3ServiceCommUrl = ServiceToCommunityPage::getUrl();
-        $kra3QualityUrl = QualityOfExtensionPage::getUrl();
-        $kra3BonusUrl = BonusCriterionPage::getUrl();
-
-        $kra4ProfOrgUrl = ProfessionalOrganizationsPage::getUrl();
-        $kra4ContDevUrl = ContinuingDevelopmentPage::getUrl();
-        $kra4AwardsUrl = AwardsRecognitionPage::getUrl();
-        $kra4BonusIndUrl = BonusIndicatorsPage::getUrl();
 
         // KRA I
         $teSubs = $allSubmissions->whereIn('type', ['te-student-evaluation', 'te-supervisor-evaluation']);
@@ -131,7 +96,6 @@ class CreateApplication extends CreateRecord
         $papersSubs = $allSubmissions->whereIn('type', ['research-sole-authorship', 'research-co-authorship']);
         $translatedSubs = $allSubmissions->whereIn('type', ['research-translated-lead', 'research-translated-contributor']);
         $citationSubs = $allSubmissions->whereIn('type', ['research-citation-local', 'research-citation-international']);
-
         $patentedSubs = $allSubmissions->whereIn('type', [
             'invention-patent-sole',
             'invention-patent-co-inventor',
@@ -147,11 +111,11 @@ class CreateApplication extends CreateRecord
             'invention-plant-animal-sole',
             'invention-plant-animal-co'
         ]);
-
         $creativePerformingSubs = $allSubmissions->where('type', 'creative-performing-art');
         $creativeExhibitionSubs = $allSubmissions->where('type', 'creative-exhibition');
         $creativeJuriedSubs = $allSubmissions->where('type', 'creative-juried-design');
         $creativeLiterarySubs = $allSubmissions->where('type', 'creative-literary-publication');
+        $allCreativeSubs = $creativePerformingSubs->merge($creativeExhibitionSubs)->merge($creativeJuriedSubs)->merge($creativeLiterarySubs);
 
         // KRA III
         $linkageSubs = $allSubmissions->where('type', 'extension-linkage');
@@ -195,86 +159,86 @@ class CreateApplication extends CreateRecord
                     Section::make('KRA I: Instruction')
                         ->collapsible()
                         ->schema([
-                            $this->createEmptyState($kra1TeUrl, 'Add Teaching Effectiveness', $teSubs),
-                            $this->createCheckboxList($teSubs, 'te_submissions', 'Teaching Effectiveness'),
+                            $this->createEmptyState(Pages\KRA1\TeachingEffectivenessPage::getUrl(), 'Add Teaching Effectiveness', $teSubs),
+                            $this->createCheckboxList($teSubs, 'submissions.te', 'Teaching Effectiveness'),
 
-                            $this->createEmptyState($kra1ImUrl, 'Add Instructional Materials', $imSubs),
-                            $this->createCheckboxList($imSubs, 'im_submissions', 'Instructional Materials'),
+                            $this->createEmptyState(Pages\KRA1\InstructionalMaterialsPage::getUrl(), 'Add Instructional Materials', $imSubs),
+                            $this->createCheckboxList($imSubs, 'submissions.im', 'Instructional Materials'),
 
-                            $this->createEmptyState($kra1MentorUrl, 'Add Mentorship Submissions', $mentorSubs),
-                            $this->createCheckboxList($mentorSubs, 'mentor_submissions', 'Mentorship'),
+                            $this->createEmptyState(Pages\KRA1\MentorshipServicesPage::getUrl(), 'Add Mentorship Submissions', $mentorSubs),
+                            $this->createCheckboxList($mentorSubs, 'submissions.mentor', 'Mentorship'),
                         ]),
 
                     Section::make('KRA II: Research & Innovation')
                         ->collapsible()
                         ->schema([
-                            $this->createEmptyStateWithTab($kra2ResearchUrl, 'published_papers', 'Add Published Papers', $papersSubs),
-                            $this->createCheckboxList($papersSubs, 'papers_submissions', 'Published Papers'),
+                            $this->createEmptyStateWithTab(Pages\KRA2\ResearchOutputsPage::getUrl(), 'published_papers', 'Add Published Papers', $papersSubs),
+                            $this->createCheckboxList($papersSubs, 'submissions.papers', 'Published Papers'),
 
-                            $this->createEmptyStateWithTab($kra2ResearchUrl, 'translated_outputs', 'Add Translated Outputs', $translatedSubs),
-                            $this->createCheckboxList($translatedSubs, 'translated_submissions', 'Translated Outputs'),
+                            $this->createEmptyStateWithTab(Pages\KRA2\ResearchOutputsPage::getUrl(), 'translated_outputs', 'Add Translated Outputs', $translatedSubs),
+                            $this->createCheckboxList($translatedSubs, 'submissions.translated', 'Translated Outputs'),
 
-                            $this->createEmptyStateWithTab($kra2ResearchUrl, 'citations', 'Add Citations', $citationSubs),
-                            $this->createCheckboxList($citationSubs, 'citation_submissions', 'Citations'),
+                            $this->createEmptyStateWithTab(Pages\KRA2\ResearchOutputsPage::getUrl(), 'citations', 'Add Citations', $citationSubs),
+                            $this->createCheckboxList($citationSubs, 'submissions.citation', 'Citations'),
 
-                            $this->createEmptyStateWithTab($kra2InventionUrl, 'patented_inventions', 'Add Patented Inventions', $patentedSubs),
-                            $this->createCheckboxList($patentedSubs, 'patented_submissions', 'Patented Inventions'),
+                            $this->createEmptyStateWithTab(Pages\KRA2\InventionsPage::getUrl(), 'patented_inventions', 'Add Patented Inventions', $patentedSubs),
+                            $this->createCheckboxList($patentedSubs, 'submissions.patented', 'Patented Inventions'),
 
-                            $this->createEmptyStateWithTab($kra2InventionUrl, 'non_patentable_inventions', 'Add Non-Patentable Inventions', $nonPatentedSubs),
-                            $this->createCheckboxList($nonPatentedSubs, 'non_patented_submissions', 'Non-Patentable Inventions'),
+                            $this->createEmptyStateWithTab(Pages\KRA2\InventionsPage::getUrl(), 'non_patentable_inventions', 'Add Non-Patentable Inventions', $nonPatentedSubs),
+                            $this->createCheckboxList($nonPatentedSubs, 'submissions.non_patented', 'Non-Patentable Inventions'),
 
-                            $this->createEmptyState($kra2CreativeUrl, 'Add Creative Works', $creativePerformingSubs->merge($creativeExhibitionSubs)->merge($creativeJuriedSubs)->merge($creativeLiterarySubs)),
-                            $this->createCheckboxList($creativePerformingSubs, 'creative_performing_submissions', 'Performing Arts'),
-                            $this->createCheckboxList($creativeExhibitionSubs, 'creative_exhibition_submissions', 'Exhibitions'),
-                            $this->createCheckboxList($creativeJuriedSubs, 'creative_juried_submissions', 'Juried Designs'),
-                            $this->createCheckboxList($creativeLiterarySubs, 'creative_literary_submissions', 'Literary Publications'),
+                            $this->createEmptyState(Pages\KRA2\CreativeWorksPage::getUrl(), 'Add Creative Works', $allCreativeSubs),
+                            $this->createCheckboxList($creativePerformingSubs, 'submissions.creative_performing', 'Performing Arts'),
+                            $this->createCheckboxList($creativeExhibitionSubs, 'submissions.creative_exhibition', 'Exhibitions'),
+                            $this->createCheckboxList($creativeJuriedSubs, 'submissions.creative_juried', 'Juried Designs'),
+                            $this->createCheckboxList($creativeLiterarySubs, 'submissions.creative_literary', 'Literary Publications'),
                         ]),
 
                     Section::make('KRA III: Extension')
                         ->collapsible()
                         ->schema([
-                            $this->createEmptyStateWithTab($kra3ServiceInstUrl, 'linkages', 'Add Linkages', $linkageSubs),
-                            $this->createCheckboxList($linkageSubs, 'linkage_submissions', 'Linkages, Networking and Partnership'),
+                            $this->createEmptyStateWithTab(Pages\KRA3\ServiceToInstitutionPage::getUrl(), 'linkages', 'Add Linkages', $linkageSubs),
+                            $this->createCheckboxList($linkageSubs, 'submissions.linkage', 'Linkages, Networking and Partnership'),
 
-                            $this->createEmptyStateWithTab($kra3ServiceInstUrl, 'income_generation', 'Add Income Generation', $incomeSubs),
-                            $this->createCheckboxList($incomeSubs, 'income_submissions', 'Income Generation'),
+                            $this->createEmptyStateWithTab(Pages\KRA3\ServiceToInstitutionPage::getUrl(), 'income_generation', 'Add Income Generation', $incomeSubs),
+                            $this->createCheckboxList($incomeSubs, 'submissions.income', 'Income Generation'),
 
-                            $this->createEmptyStateWithTab($kra3ServiceInstUrl, 'professional_services', 'Add Professional Services', $profServiceSubs),
-                            $this->createCheckboxList($profServiceSubs, 'prof_service_submissions', 'Professional Services'),
+                            $this->createEmptyStateWithTab(Pages\KRA3\ServiceToInstitutionPage::getUrl(), 'professional_services', 'Add Professional Services', $profServiceSubs),
+                            $this->createCheckboxList($profServiceSubs, 'submissions.prof_service', 'Professional Services'),
 
-                            $this->createEmptyState($kra3ServiceCommUrl, 'Add Social Responsibility', $socialRespSubs),
-                            $this->createCheckboxList($socialRespSubs, 'social_resp_submissions', 'Social Responsibility'),
+                            $this->createEmptyState(Pages\KRA3\ServiceToCommunityPage::getUrl(), 'Add Social Responsibility', $socialRespSubs),
+                            $this->createCheckboxList($socialRespSubs, 'submissions.social_resp', 'Social Responsibility'),
 
-                            $this->createEmptyState($kra3QualityUrl, 'Add Quality of Extension', $qualitySubs),
-                            $this->createCheckboxList($qualitySubs, 'quality_submissions', 'Quality of Extension'),
+                            $this->createEmptyState(Pages\KRA3\QualityOfExtensionPage::getUrl(), 'Add Quality of Extension', $qualitySubs),
+                            $this->createCheckboxList($qualitySubs, 'submissions.quality', 'Quality of Extension'),
 
-                            $this->createEmptyState($kra3BonusUrl, 'Add Bonus Criterion', $bonusSubs),
-                            $this->createCheckboxList($bonusSubs, 'bonus_submissions', 'Bonus Criterion'),
+                            $this->createEmptyState(Pages\KRA3\BonusCriterionPage::getUrl(), 'Add Bonus Criterion', $bonusSubs),
+                            $this->createCheckboxList($bonusSubs, 'submissions.bonus_kra3', 'Bonus Criterion'),
                         ]),
 
                     Section::make('KRA IV: Professional Development')
                         ->collapsible()
                         ->schema([
-                            $this->createEmptyState($kra4ProfOrgUrl, 'Add Professional Organizations', $orgSubs),
-                            $this->createCheckboxList($orgSubs, 'org_submissions', 'Professional Organizations'),
+                            $this->createEmptyState(Pages\KRA4\ProfessionalOrganizationsPage::getUrl(), 'Add Professional Organizations', $orgSubs),
+                            $this->createCheckboxList($orgSubs, 'submissions.org', 'Professional Organizations'),
 
-                            $this->createEmptyStateWithTab($kra4ContDevUrl, 'educational_qualifications', 'Add Educational Qualifications', $degreeSubs),
-                            $this->createCheckboxList($degreeSubs, 'degree_submissions', 'Educational Qualifications'),
+                            $this->createEmptyStateWithTab(Pages\KRA4\ContinuingDevelopmentPage::getUrl(), 'educational_qualifications', 'Add Educational Qualifications', $degreeSubs),
+                            $this->createCheckboxList($degreeSubs, 'submissions.degree', 'Educational Qualifications'),
 
-                            $this->createEmptyStateWithTab($kra4ContDevUrl, 'conference_training', 'Add Conference/Training', $trainingSubs),
-                            $this->createCheckboxList($trainingSubs, 'training_submissions', 'Conference/Training'),
+                            $this->createEmptyStateWithTab(Pages\KRA4\ContinuingDevelopmentPage::getUrl(), 'conference_training', 'Add Conference/Training', $trainingSubs),
+                            $this->createCheckboxList($trainingSubs, 'submissions.training', 'Conference/Training'),
 
-                            $this->createEmptyStateWithTab($kra4ContDevUrl, 'paper_presentations', 'Add Paper Presentations', $presentationSubs),
-                            $this->createCheckboxList($presentationSubs, 'presentation_submissions', 'Paper Presentations'),
+                            $this->createEmptyStateWithTab(Pages\KRA4\ContinuingDevelopmentPage::getUrl(), 'paper_presentations', 'Add Paper Presentations', $presentationSubs),
+                            $this->createCheckboxList($presentationSubs, 'submissions.presentation', 'Paper Presentations'),
 
-                            $this->createEmptyState($kra4AwardsUrl, 'Add Awards/Recognition', $awardSubs),
-                            $this->createCheckboxList($awardSubs, 'award_submissions', 'Awards/Recognition'),
+                            $this->createEmptyState(Pages\KRA4\AwardsRecognitionPage::getUrl(), 'Add Awards/Recognition', $awardSubs),
+                            $this->createCheckboxList($awardSubs, 'submissions.award', 'Awards/Recognition'),
 
-                            $this->createEmptyStateWithTab($kra4BonusIndUrl, 'academic_service', 'Add Academic Service', $acadServiceSubs),
-                            $this->createCheckboxList($acadServiceSubs, 'acad_service_submissions', 'Academic Service'),
+                            $this->createEmptyStateWithTab(Pages\KRA4\BonusIndicatorsPage::getUrl(), 'academic_service', 'Add Academic Service', $acadServiceSubs),
+                            $this->createCheckboxList($acadServiceSubs, 'submissions.acad_service', 'Academic Service'),
 
-                            $this->createEmptyStateWithTab($kra4BonusIndUrl, 'industry_experience', 'Add Industry Experience', $industrySubs),
-                            $this->createCheckboxList($industrySubs, 'industry_submissions', 'Industry Experience'),
+                            $this->createEmptyStateWithTab(Pages\KRA4\BonusIndicatorsPage::getUrl(), 'industry_experience', 'Add Industry Experience', $industrySubs),
+                            $this->createCheckboxList($industrySubs, 'submissions.industry', 'Industry Experience'),
                         ]),
                 ]),
             Step::make('Review & Submit')
@@ -282,36 +246,16 @@ class CreateApplication extends CreateRecord
                 ->schema([
                     Placeholder::make('summary')
                         ->label('Summary of Selected Evidence')
-                        ->content(function (Get $get): string {
-                            // Merge all checkbox list arrays
-                            $allSubs = array_merge(
-                                $get('te_submissions') ?? [],
-                                $get('im_submissions') ?? [],
-                                $get('mentor_submissions') ?? [],
-                                $get('papers_submissions') ?? [],
-                                $get('translated_submissions') ?? [],
-                                $get('citation_submissions') ?? [],
-                                $get('patented_submissions') ?? [],
-                                $get('non_patented_submissions') ?? [],
-                                $get('creative_performing_submissions') ?? [],
-                                $get('creative_exhibition_submissions') ?? [],
-                                $get('creative_juried_submissions') ?? [],
-                                $get('creative_literary_submissions') ?? [],
-                                $get('linkage_submissions') ?? [],
-                                $get('income_submissions') ?? [],
-                                $get('prof_service_submissions') ?? [],
-                                $get('social_resp_submissions') ?? [],
-                                $get('quality_submissions') ?? [],
-                                $get('bonus_submissions') ?? [],
-                                $get('org_submissions') ?? [],
-                                $get('degree_submissions') ?? [],
-                                $get('training_submissions') ?? [],
-                                $get('presentation_submissions') ?? [],
-                                $get('award_submissions') ?? [],
-                                $get('acad_service_submissions') ?? [],
-                                $get('industry_submissions') ?? []
-                            );
-                            $total = count($allSubs);
+                        ->content(function (Get $get) {
+                            $allSubmissionIds = [];
+                            $submissionGroups = $get('submissions') ?? [];
+
+                            foreach ($submissionGroups as $groupIds) {
+                                if (is_array($groupIds)) {
+                                    $allSubmissionIds = array_merge($allSubmissionIds, $groupIds);
+                                }
+                            }
+                            $total = count($allSubmissionIds);
 
                             return new HtmlString(
                                 "You are about to submit a total of <strong>{$total}</strong> pieces of evidence."
@@ -334,34 +278,14 @@ class CreateApplication extends CreateRecord
 
     protected function afterCreate(): void
     {
-        // Merge all submission IDs from the form data
-        $allSubmissionIds = array_merge(
-            $this->data['te_submissions'] ?? [],
-            $this->data['im_submissions'] ?? [],
-            $this->data['mentor_submissions'] ?? [],
-            $this->data['papers_submissions'] ?? [],
-            $this->data['translated_submissions'] ?? [],
-            $this->data['citation_submissions'] ?? [],
-            $this->data['patented_submissions'] ?? [],
-            $this->data['non_patented_submissions'] ?? [],
-            $this->data['creative_performing_submissions'] ?? [],
-            $this->data['creative_exhibition_submissions'] ?? [],
-            $this->data['creative_juried_submissions'] ?? [],
-            $this->data['creative_literary_submissions'] ?? [],
-            $this->data['linkage_submissions'] ?? [],
-            $this->data['income_submissions'] ?? [],
-            $this->data['prof_service_submissions'] ?? [],
-            $this->data['social_resp_submissions'] ?? [],
-            $this->data['quality_submissions'] ?? [],
-            $this->data['bonus_submissions'] ?? [],
-            $this->data['org_submissions'] ?? [],
-            $this->data['degree_submissions'] ?? [],
-            $this->data['training_submissions'] ?? [],
-            $this->data['presentation_submissions'] ?? [],
-            $this->data['award_submissions'] ?? [],
-            $this->data['acad_service_submissions'] ?? [],
-            $this->data['industry_submissions'] ?? []
-        );
+        $allSubmissionIds = [];
+        $submissionGroups = $this->data['submissions'] ?? [];
+
+        foreach ($submissionGroups as $groupIds) {
+            if (is_array($groupIds)) {
+                $allSubmissionIds = array_merge($allSubmissionIds, $groupIds);
+            }
+        }
 
         if (!empty($allSubmissionIds)) {
             Submission::whereIn('id', $allSubmissionIds)

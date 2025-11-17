@@ -3,14 +3,117 @@
 namespace App\Services;
 
 use App\Models\Setting;
+use App\Models\Submission;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class ScoringService
 {
     private array $caps = [];
 
+    /**
+     * Map Submission Type => [ 'method' => MethodName, 'cap_key' => CapSettingKey ]
+     */
+    protected const SUBMISSION_MAP = [
+        // KRA I
+        'te-student-evaluation' => ['method' => 'calculateTeachingEffectivenessStudentScore', 'cap' => 'kra_1_a_cap'],
+        'te-supervisor-evaluation' => ['method' => 'calculateTeachingEffectivenessSupervisorScore', 'cap' => 'kra_1_a_cap'],
+
+        'im-sole-authorship' => ['method' => 'calculateInstructionalMaterialSoleScore', 'cap' => 'kra_1_b_cap'],
+        'im-co-authorship' => ['method' => 'calculateInstructionalMaterialCoAuthorScore', 'cap' => 'kra_1_b_cap'],
+        'im-academic-program' => ['method' => 'calculateAcademicProgramScore', 'cap' => 'kra_1_b_cap'],
+
+        'mentorship-adviser' => ['method' => 'calculateMentorshipAdviserScore', 'cap' => 'kra_1_c_cap'],
+        'mentorship-panel' => ['method' => 'calculateMentorshipPanelScore', 'cap' => 'kra_1_c_cap'],
+        'mentorship-mentor' => ['method' => 'calculateMentorshipMentorScore', 'cap' => 'kra_1_c_cap'],
+
+        // KRA II
+        'research-sole-authorship' => ['method' => 'calculateResearchSoleScore', 'cap' => 'kra_2_a_cap'],
+        'research-co-authorship' => ['method' => 'calculateResearchCoAuthorScore', 'cap' => 'kra_2_a_cap'],
+        'research-translated-lead' => ['method' => 'calculateTranslatedOutputLeadScore', 'cap' => 'kra_2_a_cap'],
+        'research-translated-contributor' => ['method' => 'calculateTranslatedOutputContributorScore', 'cap' => 'kra_2_a_cap'],
+
+        'research-citation-local' => ['method' => 'calculateResearchCitationLocalScore', 'cap' => 'kra_2_a_3_1_cap'],
+        'research-citation-international' => ['method' => 'calculateResearchCitationInternationalScore', 'cap' => 'kra_2_a_3_2_cap'],
+
+        'invention-patent-sole' => ['method' => 'calculateInventionPatentSoleScore', 'cap' => 'kra_2_b_cap'],
+        'invention-patent-co-inventor' => ['method' => 'calculateInventionPatentCoInventorScore', 'cap' => 'kra_2_b_cap'],
+        'invention-utility-design-sole' => ['method' => 'calculateUtilityDesignSoleScore', 'cap' => 'kra_2_b_cap'],
+        'invention-utility-design-co-inventor' => ['method' => 'calculateUtilityDesignCoInventorScore', 'cap' => 'kra_2_b_cap'],
+        'invention-commercialized-local' => ['method' => 'calculateCommercializedLocalScore', 'cap' => 'kra_2_b_cap'],
+        'invention-commercialized-international' => ['method' => 'calculateCommercializedInternationalScore', 'cap' => 'kra_2_b_cap'],
+        'invention-software-new-sole' => ['method' => 'calculateSoftwareNewSoleScore', 'cap' => 'kra_2_b_cap'],
+        'invention-software-new-co' => ['method' => 'calculateSoftwareNewCoDeveloperScore', 'cap' => 'kra_2_b_cap'],
+        'invention-software-updated' => ['method' => 'calculateSoftwareUpdatedScore', 'cap' => 'kra_2_b_cap'],
+        'invention-plant-animal-sole' => ['method' => 'calculatePlantAnimalSoleScore', 'cap' => 'kra_2_b_cap'],
+        'invention-plant-animal-co' => ['method' => 'calculatePlantAnimalCoDeveloperScore', 'cap' => 'kra_2_b_cap'],
+
+        'creative-performing-art' => ['method' => 'calculateCreativePerformingArtScore', 'cap' => 'kra_2_c_cap'],
+        'creative-exhibition' => ['method' => 'calculateCreativeExhibitionScore', 'cap' => 'kra_2_c_cap'],
+        'creative-juried-design' => ['method' => 'calculateCreativeJuriedDesignScore', 'cap' => 'kra_2_c_cap'],
+        'creative-literary-publication' => ['method' => 'calculateCreativeLiteraryPublicationScore', 'cap' => 'kra_2_c_cap'],
+
+        // KRA III
+        'extension-linkage' => ['method' => 'calculateExtensionLinkageScore', 'cap' => 'kra_3_a_cap'],
+        'extension-income-generation' => ['method' => 'calculateExtensionIncomeGenerationScore', 'cap' => 'kra_3_a_cap'],
+
+        'accreditation_services' => ['method' => 'calculateAccreditationServiceScore', 'cap' => 'kra_3_b_cap'],
+        'judge_examiner' => ['method' => 'calculateJudgeExaminerScore', 'cap' => 'kra_3_b_cap'],
+        'consultant' => ['method' => 'calculateConsultantScore', 'cap' => 'kra_3_b_cap'],
+        'media_service' => ['method' => 'calculateMediaServiceScore', 'cap' => 'kra_3_b_cap'],
+        'training_resource_person' => ['method' => 'calculateTrainingResourcePersonScore', 'cap' => 'kra_3_b_cap'],
+        'social_responsibility' => ['method' => 'calculateSocialResponsibilityScore', 'cap' => 'kra_3_b_cap'],
+
+        'extension-quality-rating' => ['method' => 'calculateQualityOfExtensionScore', 'cap' => 'kra_3_c_cap'],
+        'extension-bonus-designation' => ['method' => 'calculateBonusDesignationScore', 'cap' => 'kra_3_d_cap'],
+
+        // KRA IV
+        'profdev-organization' => ['method' => 'calculateProfOrgScore', 'cap' => 'kra_4_a_cap'],
+
+        'profdev-doctorate' => ['method' => 'calculateDoctorateDegreeScore', 'cap' => 'kra_4_b_cap'],
+        'profdev-additional-degree' => ['method' => 'calculateAdditionalDegreeScore', 'cap' => 'kra_4_b_cap'],
+        'profdev-conference-training' => ['method' => 'calculateConferenceTrainingScore', 'cap' => 'kra_4_b_cap'],
+        'profdev-paper-presentation' => ['method' => 'calculatePaperPresentationScore', 'cap' => 'kra_4_b_cap'],
+
+        'profdev-award-recognition' => ['method' => 'calculateAwardRecognitionScore', 'cap' => 'kra_4_c_cap'],
+
+        'profdev-academic-service' => ['method' => 'calculateAcademicServiceScore', 'cap' => 'kra_4_d_cap'],
+        'profdev-industry-experience' => ['method' => 'calculateIndustryExperienceScore', 'cap' => 'kra_4_d_cap'],
+    ];
+
     public function __construct()
     {
         $this->caps = Setting::all()->pluck('value', 'key')->all();
+    }
+
+    /**
+     * The Main Entry Point.
+     * Finds the correct method and cap from the map, calculates, and updates the submission instance.
+     */
+    public function calculateScore(Submission $submission): void
+    {
+        $type = $submission->type;
+        $config = self::SUBMISSION_MAP[$type] ?? null;
+
+        if (!$config) {
+            Log::warning("ScoringService: Unknown submission type '{$type}'");
+            $submission->score = 0.0;
+            $submission->raw_score = 0.0;
+            return;
+        }
+
+        $method = $config['method'];
+
+        if (method_exists($this, $method)) {
+            $result = $this->{$method}($submission->data, $type);
+
+            $submission->score = $result['score'];
+            $submission->raw_score = $result['raw'];
+        } else {
+            Log::error("ScoringService: Method '{$method}' defined in map but missing in class.");
+            $submission->score = 0.0;
+            $submission->raw_score = 0.0;
+        }
     }
 
     private function getCap(string $key): float
@@ -19,115 +122,18 @@ class ScoringService
     }
 
     /**
-     * Maps a submission type to its corresponding score cap key.
-     */
-    private function getCapKeyForType(string $type): ?string
-    {
-        return match ($type) {
-            // KRA I
-            'te-student-evaluation',
-            'te-supervisor-evaluation'
-            => 'kra_1_a_cap', // 60
-
-            'im-sole-authorship',
-            'im-co-authorship',
-            'im-academic-program'
-            => 'kra_1_b_cap', // 30
-
-            'mentorship-adviser',
-            'mentorship-panel',
-            'mentorship-mentor'
-            => 'kra_1_c_cap', // 10
-
-            // KRA II
-            'research-sole-authorship',
-            'research-co-authorship'
-            => 'kra_2_a_cap', // 100
-            'research-citation-local'
-            => 'kra_2_a_3_1_cap', // 40
-            'research-citation-international'
-            => 'kra_2_a_3_2_cap', // 60
-
-            'invention-patent-sole',
-            'invention-patent-co-inventor',
-            'invention-utility-design-sole',
-            'invention-utility-design-co-inventor',
-            'invention-software-new-sole',
-            'invention-software-new-co',
-            'invention-software-updated',
-            'invention-plant-animal-sole',
-            'invention-plant-animal-co'
-            => 'kra_2_b_cap', // 100
-            'r-and-d-patented-local' // This is an assumed type
-            => 'kra_2_b_1_2_1_cap', // 20
-            'r-and-d-patented-international' // This is an assumed type
-            => 'kra_2_b_1_2_2_cap', // 30
-
-            'creative-performing-art',
-            'creative-exhibition',
-            'creative-juried-design',
-            'creative-literary-publication'
-            => 'kra_2_c_cap', // 100
-
-            // KRA III
-            'extension-linkage',
-            'extension-income-generation'
-            => 'kra_3_a_cap', // 30
-
-            'accreditation_services',
-            'judge_examiner',
-            'consultant',
-            'media_service',
-            'training_resource_person',
-            'social_responsibility'
-            => 'kra_3_b_cap', // 50
-
-            'extension-quality-rating'
-            => 'kra_3_c_cap', // 20
-
-            'extension-bonus-designation'
-            => 'kra_3_d_cap', // 20
-
-            // KRA IV
-            'profdev-organization'
-            => 'kra_4_a_cap', // 20
-
-            'profdev-doctorate',
-            'profdev-additional-degree',
-            'profdev-conference-training',
-            'profdev-paper-presentation'
-            => 'kra_4_b_cap', // 60
-            'training-participation' // This is an assumed type
-            => 'kra_4_b_2_cap', // 10
-            'training-paper-presentation' // This is an assumed type
-            => 'kra_4_b_3_cap', // 10
-
-            'profdev-award-recognition'
-            => 'kra_4_c_cap', // 20
-            'profdev-academic-service',
-            'profdev-industry-experience'
-            => 'kra_4_d_cap', // 20
-
-            default => null,
-        };
-    }
-
-    /**
-     * Applies the correct cap to a raw score based on submission type.
+     * Applies the correct cap by looking it up in the SUBMISSION_MAP.
      */
     private function applyCap(float $rawScore, string $type): array
     {
-        $capKey = $this->getCapKeyForType($type);
+        $capKey = self::SUBMISSION_MAP[$type]['cap'] ?? null;
 
-        if (is_null($capKey)) {
-            // No cap defined for this type
+        if (!$capKey) {
             return ['raw' => $rawScore, 'score' => $rawScore];
         }
 
         $cap = $this->getCap($capKey);
-        $score = min($rawScore, $cap);
-
-        return ['raw' => $rawScore, 'score' => $score];
+        return ['raw' => $rawScore, 'score' => min($rawScore, $cap)];
     }
 
     // KRA I, Criterion A

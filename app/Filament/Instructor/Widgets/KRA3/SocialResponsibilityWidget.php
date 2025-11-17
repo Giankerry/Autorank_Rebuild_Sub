@@ -2,6 +2,7 @@
 
 namespace App\Filament\Instructor\Widgets\KRA3;
 
+use App\Models\Application;
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -31,7 +32,7 @@ class SocialResponsibilityWidget extends BaseKRAWidget
 
     protected static string $view = 'filament.instructor.widgets.k-r-a3.social-responsibility-widget';
 
-    protected function getGoogleDriveFolderPath(): array
+    public function getGoogleDriveFolderPath(): array
     {
         return [$this->getKACategory(), 'B: Service to the Community', 'Social Responsibility'];
     }
@@ -84,6 +85,13 @@ class SocialResponsibilityWidget extends BaseKRAWidget
                 CreateAction::make()
                     ->label('Add')
                     ->form($this->getFormSchema())
+                    ->disabled(function () {
+                        $application = Application::find($this->selectedApplicationId);
+                        if (!$application) {
+                            return true;
+                        }
+                        return $application->status !== 'draft';
+                    })
                     ->mutateFormDataUsing(function (array $data): array {
                         $data['user_id'] = Auth::id();
                         $data['application_id'] = $this->selectedApplicationId;
@@ -112,7 +120,6 @@ class SocialResponsibilityWidget extends BaseKRAWidget
     {
         return Submission::query()
             ->where('user_id', Auth::id())
-            ->where('category', $this->getKACategory())
             ->where('type', $this->getActiveSubmissionType())
             ->where('application_id', $this->selectedApplicationId);
     }

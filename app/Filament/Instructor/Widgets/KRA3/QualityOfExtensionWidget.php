@@ -2,6 +2,7 @@
 
 namespace App\Filament\Instructor\Widgets\KRA3;
 
+use App\Models\Application;
 use App\Models\Submission;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
@@ -31,7 +32,7 @@ class QualityOfExtensionWidget extends BaseKRAWidget
 
     protected static string $view = 'filament.instructor.widgets.k-r-a3.quality-of-extension-widget';
 
-    protected function getGoogleDriveFolderPath(): array
+    public function getGoogleDriveFolderPath(): array
     {
         return [$this->getKACategory(), 'C: Quality of Extension Services'];
     }
@@ -91,6 +92,13 @@ class QualityOfExtensionWidget extends BaseKRAWidget
                 CreateAction::make()
                     ->label('Add')
                     ->form($this->getFormSchema())
+                    ->disabled(function () {
+                        $application = Application::find($this->selectedApplicationId);
+                        if (!$application) {
+                            return true;
+                        }
+                        return $application->status !== 'draft';
+                    })
                     ->mutateFormDataUsing(function (array $data): array {
                         $data['user_id'] = Auth::id();
                         $data['application_id'] = $this->selectedApplicationId;
@@ -122,7 +130,6 @@ class QualityOfExtensionWidget extends BaseKRAWidget
     {
         return Submission::query()
             ->where('user_id', Auth::id())
-            ->where('category', $this->getKACategory())
             ->where('type', $this->getActiveSubmissionType())
             ->where('application_id', $this->selectedApplicationId);
     }

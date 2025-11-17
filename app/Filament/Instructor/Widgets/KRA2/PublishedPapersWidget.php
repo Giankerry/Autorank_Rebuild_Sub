@@ -2,6 +2,7 @@
 
 namespace App\Filament\Instructor\Widgets\KRA2;
 
+use App\Models\Application;
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -46,14 +47,23 @@ class PublishedPapersWidget extends BaseKRAWidget
 
     public ?string $activeTable = 'sole_authorship';
 
-    protected function getGoogleDriveFolderPath(): array
-    {
-        return [$this->getKACategory(), 'A. Published Papers'];
-    }
-
     public function updatedActiveTable(): void
     {
         $this->resetTable();
+    }
+
+    public function getGoogleDriveFolderPath(): array
+    {
+        $kra = $this->getKACategory();
+
+        switch ($this->activeTable) {
+            case 'sole_authorship':
+                return [$kra, 'A: Published Papers', 'Sole Authorship'];
+            case 'co_authorship':
+                return [$kra, 'A: Published Papers', 'Co-Authorship'];
+            default:
+                return [$kra, Str::slug($this->getActiveSubmissionType())];
+        }
     }
 
     protected function getKACategory(): string
@@ -67,17 +77,17 @@ class PublishedPapersWidget extends BaseKRAWidget
             ? 'research-sole-authorship'
             : 'research-co-authorship';
     }
-    protected function mapCertificateDataToForm(Set $set, Get $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
+    protected function mapCertificateDataToForm($set, $get, ?string $credentialType, ?string $dateCompleted, ?string $issuingOrg, ?string $venue): void
     {
         Notification::make()->title('Document Type Mismatch')->body('The uploaded document is a Certificate. This form requires a Research Paper or Thesis.')->warning()->send();
     }
 
-    protected function mapMoaDataToForm(Set $set, Get $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
+    protected function mapMoaDataToForm($set, $get, ?string $partnerName, ?string $startDate, ?string $expirationDate, ?string $scope): void
     {
         Notification::make()->title('Document Type Mismatch')->body('The uploaded document is an MOA. This form requires a Research Paper or Thesis.')->warning()->send();
     }
 
-    protected function mapResearchDataToForm(Set $set, Get $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
+    protected function mapResearchDataToForm($set, $get, ?string $title, ?string $authorList, ?string $publisher, ?string $datePublished, ?string $documentType): void
     {
         $set('data.title', $title ?? $get('data.title'));
         $set('data.journal_name', $publisher ?? $get('data.journal_name'));
@@ -134,6 +144,13 @@ class PublishedPapersWidget extends BaseKRAWidget
             Tables\Actions\CreateAction::make()
                 ->label('Add')
                 ->form($this->getFormSchema())
+                ->disabled(function () {
+                    $application = Application::find($this->selectedApplicationId);
+                    if (!$application) {
+                        return true;
+                    }
+                    return $application->status !== 'draft';
+                })
                 ->mutateFormDataUsing(function (array $data): array {
                     $data['user_id'] = Auth::id();
                     $data['application_id'] = $this->selectedApplicationId;

@@ -5,21 +5,30 @@ namespace App\Observers;
 use App\Models\Submission;
 use App\Services\ScoringService;
 use App\Services\GoogleDriveService;
+use App\Services\ApplicationScoringService;
 use Illuminate\Support\Facades\Log;
 
 class SubmissionObserver
 {
     protected $scoringService;
     protected $driveService;
+    protected $applicationScoringService;
 
-    public function __construct(ScoringService $scoringService, GoogleDriveService $driveService)
+    public function __construct(ScoringService $scoringService, GoogleDriveService $driveService, ApplicationScoringService $applicationScoringService)
     {
         $this->scoringService = $scoringService;
         $this->driveService = $driveService;
+        $this->applicationScoringService = $applicationScoringService;
     }
 
+    /**
+     * Handle the Submission "saving" event.
+     * This calculates the individual score AND sets the KRA category.
+     */
     public function saving(Submission $submission): void
     {
+        $submission->category = $this->getCategoryForType($submission->type);
+
         $calculatedScores = match ($submission->type) {
 
             // KRA I, Criterion A
@@ -189,12 +198,28 @@ class SubmissionObserver
         $submission->score = $calculatedScores['score'];
     }
 
-    /**
-     * Handle the Submission "deleting" event.
-     * This ensures Google Drive files are
-     * cleaned up when a submission is deleted from the database.
-     */
+    public function saved(Submission $submission): void
+    {
+        if ($submission->application_id) {
+            $this->applicationScoringService->calculateScore($submission->application);
+        }
+    }
+
+    public function deleted(Submission $submission): void
+    {
+        if ($submission->application_id) {
+            $this->applicationScoringService->calculateScore($submission->application);
+        }
+
+        $this->cleanupGoogleDriveFiles($submission);
+    }
+
     public function deleting(Submission $submission): void
+    {
+        $this->cleanupGoogleDriveFiles($submission);
+    }
+
+    private function cleanupGoogleDriveFiles(Submission $submission): void
     {
         $fileIds = $submission->google_drive_file_id;
 
@@ -217,5 +242,72 @@ class SubmissionObserver
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    private function getCategoryForType(string $type): ?string
+    {
+        return match ($type) {
+            // KRA I
+            'te-student-evaluation',
+            'te-supervisor-evaluation',
+            'im-sole-authorship',
+            'im-co-authorship',
+            'im-academic-program',
+            'mentorship-adviser',
+            'mentorship-panel',
+            'mentorship-mentor'
+            => 'kra_1',
+
+            // KRA II
+            'research-sole-authorship',
+            'research-co-authorship',
+            'research-translated-lead',
+            'research-translated-contributor',
+            'research-citation-local',
+            'research-citation-international',
+            'invention-patent-sole',
+            'invention-patent-co-inventor',
+            'invention-utility-design-sole',
+            'invention-utility-design-co-inventor',
+            'invention-commercialized-local',
+            'invention-commercialized-international',
+            'invention-software-new-sole',
+            'invention-software-new-co',
+            'invention-software-updated',
+            'invention-plant-animal-sole',
+            'invention-plant-animal-co',
+            'creative-performing-art',
+            'creative-exhibition',
+            'creative-juried-design',
+            'creative-literary-publication'
+            => 'kra_2',
+
+            // KRA III
+            'extension-linkage',
+            'extension-income-generation',
+            'accreditation_services',
+            'judge_examiner',
+            'consultant',
+            'media_service',
+            'training_resource_person',
+            'social_responsibility',
+            'extension-quality-rating',
+            'extension-bonus-designation'
+            => 'kra_3',
+
+            // KRA IV
+            'profdev-organization',
+            'profdev-doctorate',
+            'profdev-additional-degree',
+            'profdev-conference-training',
+            'profdev-paper-presentation',
+            'profdev-award-recognition',
+            'profdev-academic-service',
+            'profdev-industry-experience'
+            => 'kra_4',
+
+            // Default
+            default => null,
+        };
     }
 }

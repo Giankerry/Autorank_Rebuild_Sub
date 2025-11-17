@@ -13,6 +13,16 @@ use Illuminate\Http\Request;
 class GoogleAuthController extends Controller
 {
     /**
+     * Define the scopes our application needs.
+     */
+    private $scopes = [
+        'openid',
+        'https://www.googleapis.com/auth/userinfo.email',
+        'https://www.googleapis.com/auth/userinfo.profile',
+        Drive::DRIVE_FILE,
+    ];
+
+    /**
      * Redirect the user to the Google authentication page.
      */
     public function redirectToGoogle(): RedirectResponse
@@ -20,7 +30,7 @@ class GoogleAuthController extends Controller
         /** @var \Laravel\Socialite\Two\GoogleProvider $google */
         $google = Socialite::driver('google');
 
-        return $google->scopes([Drive::DRIVE_FILE])
+        return $google->scopes($this->scopes)
             ->with([
                 'access_type' => 'offline',
                 'prompt' => 'consent'
@@ -40,12 +50,23 @@ class GoogleAuthController extends Controller
                 ->withErrors(['google_error' => 'Login with Google failed. Please make sure to grant permission to access your Google account.']);
         }
 
+        $tokenData = [
+            'access_token' => $googleUser->token,
+            'expires_in' => $googleUser->expiresIn,
+            'created' => now()->timestamp,
+            'scope' => $googleUser->user['scope'] ?? implode(' ', $this->scopes),
+        ];
+
+        if (!empty($googleUser->refreshToken)) {
+            $tokenData['refresh_token'] = $googleUser->refreshToken;
+        }
+
         $user = User::updateOrCreate([
             'google_id' => $googleUser->id,
         ], [
             'name' => $googleUser->name,
             'email' => $googleUser->email,
-            'google_token' => $googleUser->token,
+            'google_token' => $tokenData,
             'google_refresh_token' => $googleUser->refreshToken ?? User::where('google_id', $googleUser->id)->first()?->google_refresh_token,
             'avatar_url' => $googleUser->getAvatar(),
         ]);
@@ -58,7 +79,11 @@ class GoogleAuthController extends Controller
 
         $request->session()->regenerate();
 
-        // Redirect users based on their role
+        if (session('google_auth_redirect') === 'settings') {
+            $request->session()->forget('google_auth_redirect');
+            return redirect()->route('filament.instructor.pages.google-settings');
+        }
+
         if ($user->hasRole(['Admin', 'Super Admin'])) {
             return redirect()->intended('/admin');
         }
@@ -67,7 +92,6 @@ class GoogleAuthController extends Controller
             return redirect()->intended('/validator');
         }
 
-        // Default redirect for Instructors
         return redirect()->intended('/instructor');
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Instructor\Widgets\KRA3;
 
+use App\Models\Application;
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -34,21 +35,17 @@ class ProfessionalServicesWidget extends BaseKRAWidget
 
     public ?string $activeTable = 'accreditation_services';
 
-    public array $availableMediaServiceTypes = [];
-
     public function mount(): void
     {
         parent::mount();
-        $this->loadAvailableTypes();
     }
 
     public function updatedActiveTable(): void
     {
         $this->resetTable();
-        $this->loadAvailableTypes();
     }
 
-    protected function getGoogleDriveFolderPath(): array
+    public function getGoogleDriveFolderPath(): array
     {
         $kra = $this->getKACategory();
         $baseFolder = 'B: Service to the Community';
@@ -122,13 +119,8 @@ class ProfessionalServicesWidget extends BaseKRAWidget
         ];
     }
 
-    private function loadAvailableTypes(): void
+    private function getAvailableMediaServiceTypes(Get $get): array
     {
-        if ($this->activeTable !== 'media_service') {
-            $this->availableMediaServiceTypes = [];
-            return;
-        }
-
         $allTypes = $this->getOptionsMaps()['media_service'];
 
         $submittedTypes = Submission::where('user_id', Auth::id())
@@ -139,16 +131,11 @@ class ProfessionalServicesWidget extends BaseKRAWidget
             ->filter()
             ->all();
 
-        $this->availableMediaServiceTypes = array_filter(
+        return array_filter(
             $allTypes,
             fn($key) => !in_array($key, $submittedTypes),
             ARRAY_FILTER_USE_KEY
         );
-    }
-
-    private function getAvailableMediaServiceTypes(): array
-    {
-        return $this->availableMediaServiceTypes;
     }
 
     protected function getKACategory(): string
@@ -185,7 +172,6 @@ class ProfessionalServicesWidget extends BaseKRAWidget
     {
         return Submission::query()
             ->where('user_id', Auth::id())
-            ->where('category', $this->getKACategory())
             ->where('type', $this->getActiveSubmissionType())
             ->where('application_id', $this->selectedApplicationId);
     }
@@ -286,6 +272,13 @@ class ProfessionalServicesWidget extends BaseKRAWidget
             CreateAction::make()
                 ->label('Add')
                 ->form($this->getFormSchema())
+                ->disabled(function () {
+                    $application = Application::find($this->selectedApplicationId);
+                    if (!$application) {
+                        return true;
+                    }
+                    return $application->status !== 'draft';
+                })
                 ->mutateFormDataUsing(function (array $data): array {
                     $data['user_id'] = Auth::id();
                     $data['application_id'] = $this->selectedApplicationId;
@@ -295,16 +288,13 @@ class ProfessionalServicesWidget extends BaseKRAWidget
                 })
                 ->modalHeading(fn(): string => 'Submit New ' . Str::of($this->activeTable)->replace('_', ' ')->title())
                 ->modalWidth('3xl')
-                ->hidden(function (): bool {
+                ->hidden(function (Get $get): bool {
                     if ($this->activeTable !== 'media_service') {
                         return false;
                     }
-                    return empty($this->availableMediaServiceTypes);
+                    return empty($this->getAvailableMediaServiceTypes($get));
                 })
-                ->after(function () {
-                    $this->loadAvailableTypes();
-                    $this->mount();
-                }),
+                ->after(fn() => $this->mount()),
         ];
     }
 
@@ -318,10 +308,7 @@ class ProfessionalServicesWidget extends BaseKRAWidget
                 ->modalWidth('3xl')
                 ->visible($this->getActionVisibility()),
             DeleteAction::make()
-                ->after(function () {
-                    $this->loadAvailableTypes();
-                    $this->mount();
-                })
+                ->after(fn() => $this->mount())
                 ->visible($this->getActionVisibility()),
         ];
     }
@@ -418,16 +405,17 @@ class ProfessionalServicesWidget extends BaseKRAWidget
     {
         return [
             Select::make('data.service')->label('Service Rendered')
-                ->options(function (?Submission $record): array {
+                ->options(function (?Submission $record, Get $get): array {
                     $allTypes = $this->getOptionsMaps()['media_service'];
                     if ($record) {
                         return $allTypes;
                     }
-                    return $this->getAvailableMediaServiceTypes();
+                    return $this->getAvailableMediaServiceTypes($get);
                 })
                 ->searchable()
                 ->required()
                 ->live()
+                ->reactive()
                 ->columnSpanFull(),
             TextInput::make('data.media_name')->label('Name of Media (Newspaper/Magazine/Station/Network)')->required()->maxLength(255),
             TextInput::make('data.program_title')->label('Title of Newspaper Column or TV/Radio Program')->required()->maxLength(255),

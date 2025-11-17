@@ -2,6 +2,7 @@
 
 namespace App\Filament\Instructor\Widgets\KRA3;
 
+use App\Models\Application;
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -39,7 +40,7 @@ class LinkagesWidget extends BaseKRAWidget
 
     protected static string $view = 'filament.instructor.widgets.k-r-a3.linkages-widget';
 
-    protected function getGoogleDriveFolderPath(): array
+    public function getGoogleDriveFolderPath(): array
     {
         return [$this->getKACategory(), 'A. Linkages, Networking and Partnership'];
     }
@@ -69,8 +70,40 @@ class LinkagesWidget extends BaseKRAWidget
                 Tables\Columns\TextColumn::make('data.moa_expiration')->label('MOA End')->date(),
                 ScoreColumn::make('score'),
             ])
-            ->headerActions($this->getTableHeaderActions())
-            ->actions($this->getTableActions());
+
+            ->headerActions([
+                Tables\Actions\CreateAction::make()
+                    ->label('Add')
+                    ->form($this->getFormSchema())
+                    ->disabled(function () {
+                        $application = Application::find($this->selectedApplicationId);
+                        if (!$application) {
+                            return true;
+                        }
+                        return $application->status !== 'draft';
+                    })
+                    ->mutateFormDataUsing(function (array $data): array {
+                        $data['user_id'] = Auth::id();
+                        $data['application_id'] = $this->selectedApplicationId;
+                        $data['category'] = $this->getKACategory();
+                        $data['type'] = $this->getActiveSubmissionType();
+                        return $data;
+                    })
+                    ->modalHeading('Submit New Linkage/Partnership')
+                    ->modalWidth('3xl')
+                    ->after(fn() => $this->mount()),
+            ])
+            ->actions([
+                ViewSubmissionFilesAction::make(),
+                Tables\Actions\EditAction::make()
+                    ->form($this->getFormSchema())
+                    ->modalHeading('Edit Linkage/Partnership')
+                    ->modalWidth('3xl')
+                    ->visible($this->getActionVisibility()),
+                Tables\Actions\DeleteAction::make()
+                    ->after(fn() => $this->mount())
+                    ->visible($this->getActionVisibility()),
+            ]);
     }
 
     protected function getTableQuery(): Builder
@@ -192,7 +225,7 @@ class LinkagesWidget extends BaseKRAWidget
                 ->columnSpanFull()
                 ->schema([
                     $this->getKRAFileUploadComponent()->columnSpan(2),
-                    $this->getAutofillAction(), 
+                    $this->getAutofillAction(),
                 ]),
         ];
     }

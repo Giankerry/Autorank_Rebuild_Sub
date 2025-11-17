@@ -6,6 +6,7 @@ use App\Models\User;
 use Google\Client;
 use Google\Service\Drive;
 use Google\Service\Drive\DriveFile;
+use Google\Http\MediaFileUpload;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Http\UploadedFile;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -100,22 +101,42 @@ class GoogleDriveService
 
         $targetFolderId = $this->findOrCreateNestedFolder($folderPath);
 
-        $fileName = $file->getClientOriginalName();
         $fileMetadata = new DriveFile([
-            'name' => $fileName,
+            'name' => $file->getClientOriginalName(),
             'parents' => [$targetFolderId]
         ]);
 
-        $content = $file->get();
+        $chunkSizeBytes = 1 * 1024 * 1024;
+        $client = $this->service->getClient();
+        $client->setDefer(true);
 
-        $uploadedFile = $this->service->files->create($fileMetadata, [
-            'data' => $content,
-            'mimeType' => $file->getMimeType(),
-            'uploadType' => 'multipart',
-            'fields' => 'id'
-        ]);
+        $request = $this->service->files->create($fileMetadata);
 
-        return $uploadedFile->id;
+        $media = new MediaFileUpload(
+            $client,
+            $request,
+            $file->getMimeType(),
+            null,
+            true,
+            $chunkSizeBytes
+        );
+        $media->setFileSize($file->getSize());
+
+        $status = false;
+        $handle = fopen($file->getRealPath(), "rb");
+
+        try {
+            while (!$status && !feof($handle)) {
+                $chunk = fread($handle, $chunkSizeBytes);
+                $status = $media->nextChunk($chunk);
+            }
+            return $status['id'];
+        } finally {
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
+            $client->setDefer(false);
+        }
     }
 
     /**

@@ -20,6 +20,8 @@ use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use App\Filament\Instructor\Widgets\WelcomeWidget;
+use App\Filament\Instructor\Widgets\ScoreSummary;
+use App\Filament\Pages\GoogleSettings;
 
 class InstructorPanelProvider extends PanelProvider
 {
@@ -42,11 +44,12 @@ class InstructorPanelProvider extends PanelProvider
             ->discoverPages(in: app_path('Filament/Instructor/Pages'), for: 'App\\Filament\\Instructor\\Pages')
             ->pages([
                 Pages\Dashboard::class,
+                GoogleSettings::class,
             ])
             ->discoverWidgets(in: app_path('Filament/Instructor/Widgets'), for: 'App\\Filament\\Instructor\\Widgets')
             ->widgets([
-                Widgets\AccountWidget::class,
                 WelcomeWidget::class,
+                ScoreSummary::class,
             ])
             ->middleware([
                 EncryptCookies::class,

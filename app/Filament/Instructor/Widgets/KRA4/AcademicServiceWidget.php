@@ -2,6 +2,7 @@
 
 namespace App\Filament\Instructor\Widgets\KRA4;
 
+use App\Models\Application;
 use App\Models\Submission;
 use Carbon\Carbon;
 use Closure;
@@ -33,7 +34,7 @@ class AcademicServiceWidget extends BaseKRAWidget
 
     protected static string $view = 'filament.instructor.widgets.k-r-a4.academic-service-widget';
 
-    protected function getGoogleDriveFolderPath(): array
+    public function getGoogleDriveFolderPath(): array
     {
         return [$this->getKACategory(), 'D: Bonus Criterion', 'Academic Service'];
     }
@@ -83,7 +84,6 @@ class AcademicServiceWidget extends BaseKRAWidget
     {
         return Submission::query()
             ->where('user_id', Auth::id())
-            ->where('category', $this->getKACategory())
             ->where('type', $this->getActiveSubmissionType())
             ->where('application_id', $this->selectedApplicationId);
     }
@@ -109,6 +109,13 @@ class AcademicServiceWidget extends BaseKRAWidget
             Tables\Actions\CreateAction::make()
                 ->label('Add')
                 ->form($this->getFormSchema())
+                ->disabled(function () {
+                    $application = Application::find($this->selectedApplicationId);
+                    if (!$application) {
+                        return true;
+                    }
+                    return $application->status !== 'draft';
+                })
                 ->mutateFormDataUsing(function (array $data): array {
                     $data['user_id'] = Auth::id();
                     $data['application_id'] = $this->selectedApplicationId;

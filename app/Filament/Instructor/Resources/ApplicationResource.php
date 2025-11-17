@@ -17,15 +17,14 @@ use App\Tables\Columns\ScoreColumn;
 use Filament\Tables\Actions\ActionGroup;
 use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\EditAction;
-use Filament\Tables\Actions\ViewAction;
 use App\Models\PromotionCycle;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Infolists;
-use Filament\Infolists\Infolist;
-use Illuminate\Support\HtmlString;
-use Illuminate\Support\Str;
+use App\Services\ApplicationScoringService;
+use Filament\Tables\Actions\Action;
+use Filament\Notifications\Notification;
+use Livewire\Component;
 
 class ApplicationResource extends Resource
 {
@@ -35,7 +34,6 @@ class ApplicationResource extends Resource
 
     public static function canCreate(): bool
     {
-        // Checks if the logged-in user has a rank assigned.
         return !is_null(Auth::user()->faculty_rank_id);
     }
 
@@ -57,137 +55,6 @@ class ApplicationResource extends Resource
             ]);
     }
 
-    /**
-     * Define the Infolist for the ViewApplication page.
-     */
-    public static function infolist(Infolist $infolist): Infolist
-    {
-        return $infolist
-            ->schema([
-                Infolists\Components\Section::make('Application Details')
-                    ->columns(3)
-                    ->schema([
-                        Infolists\Components\TextEntry::make('evaluation_cycle')
-                            ->label('Promotion Cycle'),
-                        Infolists\Components\TextEntry::make('status')
-                            ->badge()
-                            ->color(fn(string $state): string => match ($state) {
-                                'draft' => 'gray',
-                                'Pending Validation' => 'warning',
-                                'validated' => 'success',
-                                'rejected' => 'danger',
-                                default => 'primary',
-                            }),
-                        Infolists\Components\TextEntry::make('final_score')
-                            ->label('Final Score')
-                            ->placeholder('Not yet scored.'),
-                        Infolists\Components\TextEntry::make('highest_attainable_rank')
-                            ->label('Result')
-                            ->badge()
-                            ->placeholder('Not yet validated.'),
-                        Infolists\Components\TextEntry::make('applicant_current_rank')
-                            ->label('Rank at Time of Submission'),
-                        Infolists\Components\TextEntry::make('created_at')
-                            ->label('Submitted')
-                            ->dateTime('M j, Y g:ia'),
-                        Infolists\Components\TextEntry::make('remarks')
-                            ->label('Evaluator Remarks')
-                            ->columnSpanFull()
-                            ->placeholder('No remarks yet.'),
-                    ]),
-
-                // Helper function to create a repeatable entry for submissions
-                $fn = function (string $kraLabel, array $submissionTypes) use ($infolist) {
-                    return Infolists\Components\Section::make($kraLabel)
-                        ->collapsible()
-                        ->schema([
-                            Infolists\Components\RepeatableEntry::make('submissions')
-                                ->label(false)
-                                ->hidden(fn(Application $record) => $record->submissions->whereIn('type', $submissionTypes)->isEmpty())
-                                ->record($infolist->getRecord()->submissions->whereIn('type', $submissionTypes))
-                                ->schema([
-                                    Infolists\Components\TextEntry::make('id')
-                                        ->label(false)
-                                        ->formatStateUsing(function ($state, $record) {
-                                            $title = $record->data['title'] ?? $record->data['name'] ?? $record->data['activity_title'] ?? 'Untitled';
-                                            $type = Str::of($record->type)->replace('-', ' ')->title();
-                                            return new HtmlString("<div>{$title}</div><div class='text-xs text-gray-500'>{$type}</div>");
-                                        }),
-                                ]),
-                            Infolists\Components\TextEntry::make($kraLabel . '_empty')
-                                ->label(false)
-                                ->value('No submissions for this KRA.')
-                                ->color('gray')
-                                ->hidden(fn(Application $record) => $record->submissions->whereIn('type', $submissionTypes)->isNotEmpty())
-                        ]);
-                },
-
-                // KRA I
-                $fn('KRA I: Instruction', [
-                    'te-student-evaluation',
-                    'te-supervisor-evaluation',
-                    'im-sole-authorship',
-                    'im-co-authorship',
-                    'im-academic-program',
-                    'mentorship-adviser',
-                    'mentorship-panel',
-                    'mentorship-mentor'
-                ]),
-
-                // KRA II
-                $fn('KRA II: Research & Innovation', [
-                    'research-sole-authorship',
-                    'research-co-authorship',
-                    'research-translated-lead',
-                    'research-translated-contributor',
-                    'research-citation-local',
-                    'research-citation-international',
-                    'invention-patent-sole',
-                    'invention-patent-co-inventor',
-                    'invention-utility-design-sole',
-                    'invention-utility-design-co-inventor',
-                    'invention-commercialized-local',
-                    'invention-commercialized-international',
-                    'invention-software-new-sole',
-                    'invention-software-new-co',
-                    'invention-software-updated',
-                    'invention-plant-animal-sole',
-                    'invention-plant-animal-co',
-                    'creative-performing-art',
-                    'creative-exhibition',
-                    'creative-juried-design',
-                    'creative-literary-publication'
-                ]),
-
-                // KRA III
-                $fn('KRA III: Extension', [
-                    'extension-linkage',
-                    'extension-income-generation',
-                    'accreditation_services',
-                    'judge_examiner',
-                    'consultant',
-                    'media_service',
-                    'training_resource_person',
-                    'social_responsibility',
-                    'extension-quality-rating',
-                    'extension-bonus-designation'
-                ]),
-
-                // KRA IV
-                $fn('KRA IV: Professional Development', [
-                    'profdev-organization',
-                    'profdev-doctorate',
-                    'profdev-additional-degree',
-                    'profdev-conference-training',
-                    'profdev-paper-presentation',
-                    'profdev-award-recognition',
-                    'profdev-academic-service',
-                    'profdev-industry-experience'
-                ]),
-            ]);
-    }
-
-
     public static function table(Table $table): Table
     {
         return $table
@@ -206,11 +73,12 @@ class ApplicationResource extends Resource
                         default => 'primary',
                     }),
                 ScoreColumn::make('final_score')
-                    ->label('Final Score'),
+                    ->label('Final Score')
+                    ->placeholder('Not yet calculated.'),
                 Tables\Columns\TextColumn::make('highest_attainable_rank')
-                    ->label('Result')
+                    ->label('Highest Attainable Rank')
                     ->badge()
-                    ->placeholder('Not yet validated.'),
+                    ->placeholder('Not yet calculated.'),
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Submitted')
                     ->dateTime('M j, Y g:ia')
@@ -221,12 +89,40 @@ class ApplicationResource extends Resource
             ])
             ->actions([
                 ActionGroup::make([
-                    ViewAction::make(),
+                    // Action::make('view')
+                    //     ->label('View on Dashboard')
+                    //     ->icon('heroicon-o-eye')
+                    //     ->color('gray')
+                    //     ->url(function (Application $record) {
+                    //         session()->put('selected_app_id', $record->id);
+                    //         session()->save();
+                    //         return filament()->getUrl();
+                    //     }),
                     EditAction::make()
-                        // Only allow editing if it's still a draft
                         ->visible(fn(Application $record): bool => $record->status === 'draft'),
+                    Action::make('submitForValidation')
+                        ->label('Submit for Validation')
+                        ->icon('heroicon-o-check-circle')
+                        ->color('success')
+                        ->requiresConfirmation()
+                        ->modalHeading('Submit Application')
+                        ->modalDescription('This will calculate the final score and submit your application. You will no longer be able to edit it. Are you sure?')
+                        ->visible(fn(Application $record): bool => $record->status === 'draft')
+                        ->action(function (Application $record, ApplicationScoringService $appScoringService, Component $livewire) {
+                            $appScoringService->calculateScore($record);
+                            $record->applicant_current_rank = $record->user->facultyRank?->name ?? 'N/A';
+                            $record->status = 'Pending Validation';
+                            $record->save();
+                            $record->refresh();
+                            Notification::make()
+                                ->title('Application Submitted!')
+                                ->body("Your final score is {$record->final_score}. It is now pending validation.")
+                                ->success()
+                                ->send();
+
+                            $livewire->dispatch('refresh');
+                        }),
                     DeleteAction::make()
-                        // Only allow deleting if it's still a draft
                         ->visible(fn(Application $record): bool => $record->status === 'draft'),
                 ])
             ])
@@ -240,7 +136,7 @@ class ApplicationResource extends Resource
     public static function getRelations(): array
     {
         return [
-            // could make a submissionRelationManager
+            //
         ];
     }
 
@@ -249,7 +145,6 @@ class ApplicationResource extends Resource
         return [
             'index' => Pages\ListApplications::route('/'),
             'create' => Pages\CreateApplication::route('/create'),
-            'view' => Pages\ViewApplication::route('/{record}'),
             'edit' => Pages\EditApplication::route('/{record}/edit'),
         ];
     }

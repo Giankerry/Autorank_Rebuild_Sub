@@ -2,6 +2,7 @@
 
 namespace App\Filament\Instructor\Widgets\KRA2;
 
+use App\Models\Application;
 use App\Models\Submission;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -38,7 +39,7 @@ class PatentedInventionsWidget extends BaseKRAWidget
         $this->resetTable();
     }
 
-    protected function getGoogleDriveFolderPath(): array
+    public function getGoogleDriveFolderPath(): array
     {
         $kra = $this->getKACategory();
         $baseFolder = 'B: Patented Inventions';
@@ -181,6 +182,13 @@ class PatentedInventionsWidget extends BaseKRAWidget
             CreateAction::make()
                 ->label('Add')
                 ->form($this->getFormSchema())
+                ->disabled(function () {
+                    $application = Application::find($this->selectedApplicationId);
+                    if (!$application) {
+                        return true;
+                    }
+                    return $application->status !== 'draft';
+                })
                 ->mutateFormDataUsing(function (array $data): array {
                     $data['user_id'] = Auth::id();
                     $data['application_id'] = $this->selectedApplicationId;

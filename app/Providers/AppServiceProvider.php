@@ -2,10 +2,16 @@
 
 namespace App\Providers;
 
-use Illuminate\Support\ServiceProvider;
+use App\Models\Submission;
 use App\Models\Setting;
+use App\Observers\SubmissionObserver;
+use App\Services\ApplicationScoringService;
+use App\Services\GoogleDriveService;
+use App\Services\ScoringService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -30,6 +36,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        Schema::defaultStringLength(191);
+        Submission::observe(SubmissionObserver::class);
     }
 }

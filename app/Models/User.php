@@ -6,10 +6,12 @@ namespace App\Models;
 use Filament\Models\Contracts\FilamentUser;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Traits\HasRoles;
 use Filament\Panel;
+use Google\Service\Drive;
 
 class User extends Authenticatable implements FilamentUser
 {
@@ -41,6 +43,7 @@ class User extends Authenticatable implements FilamentUser
     protected $hidden = [
         'password',
         'remember_token',
+        'google_token',
     ];
 
     /**
@@ -66,6 +69,14 @@ class User extends Authenticatable implements FilamentUser
         return $this->belongsTo(FacultyRank::class);
     }
 
+    /**
+     * Get all applications for the user
+     */
+    public function applications(): HasMany
+    {
+        return $this->hasMany(Application::class, 'user_id');
+    }
+
     public function getFilamentAvatarUrl(): ?string
     {
         return $this->avatar_url;
@@ -77,5 +88,20 @@ class User extends Authenticatable implements FilamentUser
     public function canAccessPanel(Panel $panel): bool
     {
         return true;
+    }
+
+    /**
+     * Check if the user's Google token has the required Drive scope.
+     */
+    public function hasDriveScope(): bool
+    {
+        $tokenData = $this->google_token;
+
+        if (empty($tokenData) || !is_array($tokenData) || empty($tokenData['scope'])) {
+            return false;
+        }
+        $scopes = explode(' ', $tokenData['scope']);
+
+        return in_array(Drive::DRIVE_FILE, $scopes);
     }
 }

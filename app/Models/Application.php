@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 
 class Application extends Model
 {
@@ -44,5 +45,18 @@ class Application extends Model
     public function submissions(): HasMany
     {
         return $this->hasMany(Submission::class);
+    }
+
+    protected function applicantCurrentRank(): Attribute
+    {
+        return Attribute::make(
+            get: function (?string $value) {
+                if ($this->status === 'draft') {
+                    return $this->user->facultyRank?->name ?? 'Unset';
+                }
+
+                return $value;
+            }
+        );
     }
 }

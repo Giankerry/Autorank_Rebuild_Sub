@@ -13,8 +13,8 @@ class ScoreColumn extends TextColumn
         parent::setUp();
 
         $this
-            ->name('score')
             ->label('Score')
+            ->badge()
             ->numeric(2)
             ->description(function (Model $record) {
 
